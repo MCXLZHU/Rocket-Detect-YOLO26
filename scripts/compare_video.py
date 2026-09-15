@@ -119,7 +119,8 @@ def fnum(r: dict | None, k: str):
 def build_timeline(n: int, fps: float, W: int, H: int,
                    sam: dict[int, dict], org: dict[int, dict],
                    phi_lo: float, phi_hi: float, dphi_max: float = 0.0,
-                   sam2: dict[int, dict] | None = None) -> np.ndarray:
+                   sam2: dict[int, dict] | None = None,
+                   dphi_clip: int = 0, dphi_n: int = 0) -> np.ndarray:
     """全片曲线带: **上段 φ(t) + 下段 Δφ(t)**, 返回 (H, W, 3) uint8。
 
     为什么必须有 Δφ 那一段: 两条路线的 φ 只差 0.7~0.8°, 画在 ±8° 的同一根轴上
@@ -139,22 +140,35 @@ def build_timeline(n: int, fps: float, W: int, H: int,
     def x_of(f):
         return int(pad_l + w * f / max(n - 1, 1))
 
-    def mk_y(y_top, hh, lo, hi):
+    def mk_y(y_top, y_bot, lo, hi):
         def y_of(p):
             c = min(max(p, lo), hi)
-            return int(y_top + hh * (1.0 - (c - lo) / max(hi - lo, 1e-6)))
+            return int(y_top + (y_bot - y_top) *
+                       (1.0 - (c - lo) / max(hi - lo, 1e-6)))
         return y_of
 
-    y_phi = mk_y(y1_top, h1, phi_lo, phi_hi)
-    y_dphi = mk_y(y2_top, h2, -dphi_max, dphi_max)
+    # 底边留 8px: 纵轴范围恰好落在网格线上(如 -4), 不留边距的话最低那条网格线的
+    # 标签会被面板分隔线/时间轴标签压住 —— 之前想把标签上移, 结果正好盖住 -2。
+    y_phi = mk_y(y1_top, y1_top + h1 - 8, phi_lo, phi_hi)
+    y_dphi = mk_y(y2_top, y2_top + h2 - 8, -dphi_max, dphi_max)
 
     # ---- 上段: φ 网格 + 时间轴 ----
-    for p in np.arange(np.ceil(phi_lo), phi_hi + 1, 2.0):
+    # 网格步长自适应: 原先是写死的 2°, 但纵轴不再固定 ±8 而按数据变化,
+    # 范围一大(如 -4..+18)标签就会挤在一起。取 1/2/5/10 中最小的、
+    # 能保证相邻标签至少隔 9px 的步长。
+    span = max(phi_hi - phi_lo, 1e-6)
+    step = 10.0
+    for cand in (1.0, 2.0, 5.0, 10.0):
+        if h1 * cand / span >= 9.0:
+            step = cand
+            break
+    for p in np.arange(np.ceil(phi_lo / step) * step, phi_hi + 1e-6, step):
         y = y_phi(p)
         col = (70, 70, 70) if abs(p) > 1e-6 else (120, 120, 120)
         cv2.line(strip, (pad_l, y), (W - pad_r, y), col, 1, cv2.LINE_AA)
-        cv2.putText(strip, f"{p:+.0f}", (4, y + 4), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.38, (180, 180, 180), 1, cv2.LINE_AA)
+        cv2.putText(strip, "0" if abs(p) < 1e-6 else f"{p:+.0f}", (4, y + 4),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.38, (180, 180, 180), 1,
+                    cv2.LINE_AA)
     for t in range(0, int(n / fps) + 1, 10):
         x = x_of(int(t * fps))
         cv2.line(strip, (x, y1_top), (x, y2_top + h2), (52, 52, 52), 1,
@@ -167,9 +181,9 @@ def build_timeline(n: int, fps: float, W: int, H: int,
             y = y_dphi(p)
             col = (120, 120, 120) if abs(p) < 1e-9 else (70, 70, 70)
             cv2.line(strip, (pad_l, y), (W - pad_r, y), col, 1, cv2.LINE_AA)
-            cv2.putText(strip, f"{p:+.1f}", (2, y + 4),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.34, (180, 180, 180), 1,
-                        cv2.LINE_AA)
+            cv2.putText(strip, "0.0" if abs(p) < 1e-9 else f"{p:+.1f}",
+                        (2, y + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.34,
+                        (180, 180, 180), 1, cv2.LINE_AA)
     cv2.line(strip, (pad_l, y2_top - 4), (W - pad_r, y2_top - 4),
              (95, 95, 95), 1, cv2.LINE_AA)
 
@@ -231,7 +245,10 @@ def build_timeline(n: int, fps: float, W: int, H: int,
     cv2.putText(strip, lab, (pad_l + 4, y1_top + 11),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.38, (205, 205, 205), 1, cv2.LINE_AA)
     if dphi_max > 0:
-        lab2 = "delta-phi = SAM - gradient   (own scale, +-%.1f deg)" % dphi_max
+        # 把截顶帧数写在标题上 —— 轴是按分位定的, 少数尖峰会被切平, 必须让你知道
+        lab2 = ("delta-phi = SAM - gradient   (own scale, +-%.1f deg%s)"
+                % (dphi_max,
+                   "" if not dphi_n else "; %d/%d clipped" % (dphi_clip, dphi_n)))
         cv2.putText(strip, lab2, (pad_l + 4, y2_top + 11),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.36, (205, 205, 205), 1,
                     cv2.LINE_AA)
@@ -347,9 +364,15 @@ def main() -> None:
     ap.add_argument("--end", type=int, default=0)
     ap.add_argument("--out", default="")
     ap.add_argument("--no-video", action="store_true")
-    ap.add_argument("--phi-range", default="-8,8")
+    ap.add_argument("--phi-range", default="auto",
+                    help='"min,max" 纵轴范围; 默认 auto = 按数据自动定, 保证不截顶'
+                         '(实测全片 φ ∈ [-3, +16], 固定 ±8 会截掉约 11%% 的帧)')
     ap.add_argument("--vs2", default="",
                     help="第二套 SAM 配置标签(如 s1024), 同屏对比分辨率")
+    ap.add_argument("--dphi-range", default="auto",
+                    help='"X" 下段 Δφ 轴半宽; 默认 auto = 稳健分位(见下方注释)'
+                         '. Δφ 中位仅 0.8°, 若按最大值取轴会被单个失稳帧的尖峰'
+                         '绑死, 故宁可截掉极少数尖峰也要保住信号分辨率')
     ap.add_argument("--strip-h", type=int, default=190,
                     help="底部曲线带高度(默认 190: 上段 φ, 下段 Δφ)")
     ap.add_argument("--stills", type=int, default=0,
@@ -401,18 +424,56 @@ def main() -> None:
             roi_org[f] = (cr[2][0], cr[2][1])
     cap.release()
 
-    lo, hi = (float(v) for v in a.phi_range.split(","))
-    # Δφ 自己的刻度: 用数据的 96 分位(至少 0.5°) —— 差异只有零点几度, 必须放大才看得见
+    # ---- 纵轴范围: 默认按数据自动定, 保证不截顶 ----
+    # 实测全片 φ ∈ [-3, +16](SAM 在 7-15s 就能到 +14), 早期固定用 ±8 会截掉约 11% 的帧,
+    # 曲线被削平成一条直线 —— 是用户用屏幕量角器量出 13° 才发现的。
+    if a.phi_range.strip().lower() == "auto":
+        allv = []
+        for m in (smap, omap, s2map):
+            if not m:
+                continue
+            for r in m.values():
+                v = fnum(r, "phi_smooth")
+                if v is not None:
+                    allv.append(v)
+        if allv:
+            vmin, vmax = float(np.min(allv)), float(np.max(allv))
+            # 取偶数便于每 2° 一条网格线; **不强制对称** —— φ 只往正方向跑,
+            # 对称轴会白白浪费下半屏, 压缩落地段的细节。
+            lo = float(np.floor((vmin - 1.0) / 2) * 2)
+            hi = float(np.ceil((vmax + 1.0) / 2) * 2)
+        else:
+            lo, hi = -8.0, 8.0
+    else:
+        lo, hi = (float(v) for v in a.phi_range.split(","))
+    # Δφ 自己的刻度: 两条路线只差零点几度, 必须放大才看得见。
+    # ★ 绝不能按 max 定轴: 实测 Δφ 中位 0.8°, 但个别失稳帧会甩出 3~4° 的尖峰,
+    #   让一个坏帧把整根轴拉到 ±4, 落地段那 0.8° 就被压成贴着零线的直线。
+    #   取 p96×1.25 ⇒ 轴半宽 ≈1.9°, 落地段能占满近一半高度, 只截掉 ~1% 的尖峰;
+    #   截掉多少帧会打印出来, 不静默丢失。
     dv = []
-    for f in range(n_all):
-        p = fnum(smap.get(f), "phi_smooth")
-        q = fnum(omap.get(f), "phi_smooth")
-        if p is not None and q is not None:
-            dv.append(abs(p - q))
-    dphi_max = float(np.clip(np.percentile(dv, 96) * 1.25, 0.5, 8.0)) if dv else 0.0
-    print(f"[刻度] Δφ 轴 ±{dphi_max:.2f}°  (样本 {len(dv)} 帧)", flush=True)
+    for m in (smap, s2map):
+        if not m:
+            continue
+        for f in range(n_all):
+            p = fnum(m.get(f), "phi_smooth")
+            q = fnum(omap.get(f), "phi_smooth")
+            if p is not None and q is not None:
+                dv.append(abs(p - q))
+    if a.dphi_range.strip().lower() == "auto":
+        dphi_max = max(0.5, float(np.percentile(dv, 96) * 1.25)) if dv else 0.0
+        rule = "auto p96x1.25"
+    else:
+        dphi_max, rule = float(a.dphi_range), "manual"
+    # 取整到 0.5 的整数倍 ⇒ 网格线落在 ±X, ±X/2, 0, 标签不会出现 "+1.0 / -0.9"
+    dphi_max = max(0.5, float(np.ceil(dphi_max * 2) / 2)) if dphi_max else 0.0
+    clipped = sum(1 for v in dv if v > dphi_max)
+    print(f"[刻度] φ 轴 {lo:+.0f}..{hi:+.0f}°   "
+          f"Δφ 轴 ±{dphi_max:.1f}° [{rule}] "
+          f"(样本 {len(dv)} 帧, 截顶 {clipped} / "
+          f"{100 * clipped / max(len(dv), 1):.1f}%)", flush=True)
     strip = build_timeline(n_all, fps, W, a.strip_h, smap, omap, lo, hi,
-                           dphi_max, s2map)
+                           dphi_max, s2map, clipped, len(dv))
     print(f"[时间线] 底图 {strip.shape} 完成", flush=True)
 
     # ---------------- 静态对照图 ----------------
