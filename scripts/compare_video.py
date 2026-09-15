@@ -73,6 +73,7 @@ C_BODY = (0, 220, 255)      # 筒身段标记(黄)
 C_EDGE = (0, 220, 0)        # 原方案左右边(绿)
 C_BOX = (200, 200, 0)       # 稳定框(青)
 C_SAM2 = (230, 130, 60)     # 第二套 SAM 配置(蓝)
+C_ORANGE = (0, 140, 235)    # 原方案有效性条带(橙; BGR 是红多蓝少, 别写反)
 C_REF = (200, 200, 200)
 
 FONT_CANDIDATES = [
@@ -179,7 +180,9 @@ def build_timeline(n: int, fps: float, W: int, H: int,
         if s and str(s.get("ok", "0")) in ("1", "True"):
             strip[1:4, x] = (60, 220, 60)
         if o and str(o.get("ok", "0")) in ("1", "True"):
-            strip[5:8, x] = (230, 160, 60)
+            # ★ BGR! 图例写 orange, 而 (230,160,60) 是"蓝多红少" ⇒ 渲染成蓝色,
+            #   和 SAM2 条带的 (230,130,60) 几乎分不清。真橙色 = 红多蓝少。
+            strip[5:8, x] = C_ORANGE
         if sam2 is not None and str(sam2.get(f, {}).get("ok", "0")) in ("1", "True"):
             strip[9:12, x] = (230, 130, 60)
 
