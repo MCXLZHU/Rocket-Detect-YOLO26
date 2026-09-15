@@ -53,12 +53,16 @@ YOLO26s 检测可回收火箭降落视频 → 检测稳定化 → 筒身倾角 �
 **阶段可缓存**（产物存在即跳过，`--force` 强制重跑）；`--summary/--list/--only/--from/--to`。
 日志 `runs/pipeline_log.txt`。评测数据源 `runs/diag/dets_iou70.json`（一次推理存盘，后续分析免 GPU）。
 
-## 版本控制（2026-09-15 git init，尚未首次提交）
+## 版本控制（2026-09-15 git init）
 - 仓库在根目录，`main` 分支；`core.quotepath=false`。
-- **入库 121 文件 / 31.68 MB**。排除：数据集（18 GB）、`.cache/`（2.2 GB）、
+- 远端 `origin` = `https://github.com/MCXLZHU/Rocket-Detect-YOLO26.git`。
+- **入库 122 文件 / 31.68 MB**。排除：数据集（18 GB）、`.cache/`（2.2 GB）、
   除 `runs/rocket_yolo26s/weights/best.pt` 外的所有 `*.pt`、`runs/**/*.mp4`、
   `runs/smoke_*`、`runs/angle/debug*`、`*.log`、IDE 目录。
 - 跟踪输入视频与全部分析产物（报告/CSV/JSON/图表/关键帧），保证可复现。
+- **提交信息必须用「无 BOM 的 UTF-8 文件 + `git commit -F`」**，PowerShell 下 `-m "中文"` 会乱码。
+- **`git push` 未打通**：本机无 GitHub 写凭据，GCM 能取到 token 却存不住（见当日日志）。
+  **WorkBuddy 的 GitHub Connector 与 git push 是两条独立通道，重连 Connector 无效。**
 - 注意：`git check-ignore -v` 对**否定规则**也打印并返回 0，别只看退出码。
 
 ## 本机环境坑
