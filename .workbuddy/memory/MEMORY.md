@@ -121,6 +121,13 @@ SAM 路线是**可选**阶段：`pipeline.py --sam` → 额外跑 seg(≈120s GP
 - 同类坑：**`git log --format=%H`** 被当成 cmd 变量语法拦截；**内联 `python -c "..."`** 里的 `\"`
   不是 PowerShell 转义，会截断命令 ⇒ 一律写成 .py 文件再跑。
 
+- ⚠️ **`cv2.putText` 只支持 ASCII**：画中文会变成乱码方块**并与相邻文字重叠**（本项目的
+  `compare_video.py` 踩过）。中文一律走 PIL（微软雅黑 `C:\Windows\Fonts\msyh.ttc`）。
+- ⚠️ **做对比图先问"差异量级 vs 轴量级"**：两条路线只差 0.7~0.8°，画在同一根 ±8° 轴上
+  完全看不出差异 —— 必须给差异量单独一个刻度（见 `compare_video.py` 的 Δφ 下段）。
+- **可视化入口**：`scripts/compare_video.py --tag s512 --vs2 s1024 --stills 6`
+  → `runs/seg/compare_overlay_*.mp4` / `compare_timeline_*.png` / `compare_stills_*.png`。
+
 ## 本机环境坑
 - **PowerShell 工具输出会被吞**（连 `Write-Output` 都拿不到）：必须
   `... 2>&1 | Out-File -FilePath x.log -Encoding utf8` 落文件再 Read。
