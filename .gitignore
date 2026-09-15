@@ -69,6 +69,9 @@ runs/seg/probe_*.png
 # 冒烟测试产物(与 runs/angle/angles_smoke* 同规矩, 不入库)
 runs/seg/*_smoke.*
 runs/angle_mask/*_smoke.*
+# 排障用的临时跑(--tag dbg), 只用于抓栈, 不留产物
+runs/seg/*_dbg.*
+runs/angle_mask/*_dbg.*
 
 # ---------- 9. IDE / 编辑器 ----------
 .idea/
