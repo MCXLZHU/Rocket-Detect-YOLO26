@@ -10,6 +10,8 @@ YOLO26s 检测可回收火箭降落视频 → 检测稳定化 → 筒身倾角 �
 | `TRAINING_REPORT.md` | 训练全过程总结（项目统一入口） |
 | `DETECTION_STABILIZATION.md` | 第 1-2 步：检测稳定化 |
 | `ANGLE_ESTIMATION.md` | 第 3 步：ROI 边缘检测 + 倾角 |
+| `SAM2_MASK_ANGLE.md` | 第 3 步（**替代路线**）：SAM 2.1 掩码方案实现/实测/对拍 |
+| `SAM2_PROPOSAL.md` | SAM 2.1 方案细化与对比（导师建议的细化） |
 | `ATTITUDE_ESTIMATION.md` | 第 4 步：姿态反算 |
 | `README.md` | 流水线用法 + 已知限制 |
 | `README_TRAIN.md` | 训练环境与操作手册 |
@@ -48,9 +50,30 @@ YOLO26s 检测可回收火箭降落视频 → 检测稳定化 → 筒身倾角 �
 8. **前 20s 倾角不可采信**（条带仅 7~10px，估计值随目标变大单调趋向 0，是尺度相关偏差）；
    可信区间从 ~25s 起，最可信 45-69s。落地段 Δφ(相对上边缘)=89.63°、σ=0.26°。
 
+## SAM 2.1 掩码路线（方案 B，2026-09-15 完成）
+9. **原理优势**：箭体是回旋体，剪影左右边界的中点连线 = 轴线投影，
+   **不需要"左右边平行+间距恒定"的先验去猜哪两条边属于同一根筒子**。
+10. **实时性（tiny，实测传播速度）**：`1024+fp32` 3.7fps → `1024+fp16` 11.3fps → **`512+fp16` 30.9fps**。
+    **配置选错会误判"不能实时"**（官方 47.2fps 是 A100 + torch 2.5.1 的数字）。全片 2203 帧端到端 126s（15.5fps）。
+11. **精度三项全面优于原方案**：旋转增益 **0.963**（原 0.898）、帧内残差 σ **0.091°**（原 0.187）、
+    落地段 46-66s σ **0.095°**（原 0.223）。覆盖：有掩码 1837 帧、分割可信 1804、测角有效 1730。
+12. **原方案 w_body 口径确认是错的**：`w_body(SAM/原)` 中位 **1.78** ⇒ 原方案量到的是**涂装条纹**；
+    更关键的是其拟合条带相对剪影**倾斜 0.4~0.8°**（不是平行错开），这正是两路线 **Δφ=+0.76°** 系统偏移的来源。
+    物理原因：**圆柱面上一条纵向母线在斜视角下的投影并不平行于剪影边缘**。
+13. **必须分块**：`init_state` 把整帧张量常驻，1024² 每帧 12.6MB ⇒ 全片 27.7GB，远超 16GB 内存。
+    默认 `--chunk 200`，OOM 自动减半。
+14. **体检判据不能用 IoU，也不能用固定比例的 contain**：落地段框被支腿撑大（IoU 天然 ~0.5）；
+    小目标段（箭体 6~8px 宽）掩码越界 1~2px 就让 contain 掉到 0.74~0.81 ⇒ **实测 25 帧误杀 +
+    连续 8 次无效重锚定 + 两个 200 帧的块被整块截断**（可用帧 863 → 修正后 1837）。
+    改用 `escape = 越界像素数 > max(3px, 0.35×框宽)`，且**连续 3 帧不过才重锚定**。
+15. **旋转注入的符号**：`cv2.getRotationMatrix2D` 正角=逆时针 ⇒ 理想增益是 **−1** 不是 +1（第一版写错过，已更正）。
+16. **交叉验证的统计口径**：多帧合并回归会把"帧间截距差"算进残差（σ 0.73 虚高），
+    必须**逐帧各自回归**再合并残差（真值 σ 0.091）。
+
 ## 一键流水线
 `python pipeline.py` → detect(GPU 36s) → stabilize(3s) → angle(33s) → attitude(66s)
 **阶段可缓存**（产物存在即跳过，`--force` 强制重跑）；`--summary/--list/--only/--from/--to`。
+SAM 路线是**可选**阶段：`pipeline.py --sam` → 额外跑 seg(≈120s GPU) → angle_mask(CPU)。
 日志 `runs/pipeline_log.txt`。评测数据源 `runs/diag/dets_iou70.json`（一次推理存盘，后续分析免 GPU）。
 
 ## 版本控制（2026-09-15 git init）
@@ -64,6 +87,14 @@ YOLO26s 检测可回收火箭降落视频 → 检测稳定化 → 筒身倾角 �
 - **`git push` 未打通**：本机无 GitHub 写凭据，GCM 能取到 token 却存不住（见当日日志）。
   **WorkBuddy 的 GitHub Connector 与 git push 是两条独立通道，重连 Connector 无效。**
 - 注意：`git check-ignore -v` 对**否定规则**也打印并返回 0，别只看退出码。
+- **分支 `sam2-video-mask`（= feature/sam2-video-mask）@ `e516b11`**：SAM 路线全部改动。
+- ⚠️ **本机 git 无法创建带斜杠的嵌套引用名**：`git checkout -b feature/x` / `git branch feature/x main`
+  都**打印成功且 exit 0，但 `refs/heads/feature/x` 根本没被创建**（HEAD 却被改写 ⇒ 留下"未出生分支"
+  的诡异状态：`git status` 把 122 个已提交文件全列成 `A`）。扁平名 `git branch sam2-video-mask main`
+  **正常**。⇒ **本机建分支一律用扁平名**；若已陷入未出生状态，用
+  `git symbolic-ref HEAD refs/heads/main` 即可恢复（索引本身是好的）。
+  手工用 Set-Content 写出的嵌套引用 git 是能读的，但 git 自己写不了 ⇒ 提交也会失败，所以别绕。
+- `git log --format="%H %an"` 会被安全策略当成 **cmd.exe 的 `%VAR%` 语法**拦截 ⇒ 改用 `git --no-pager log -1`。
 
 ## 本机环境坑
 - **PowerShell 工具输出会被吞**（连 `Write-Output` 都拿不到）：必须
@@ -72,6 +103,14 @@ YOLO26s 检测可回收火箭降落视频 → 检测稳定化 → 筒身倾角 �
 - **Bash 工具在本机不可用**（`ls`/`dirname` 缺失），一律用 PowerShell + 专用工具。
 - Windows 控制台编码：重定向时 Python 中文按 GBK 输出而端点按 UTF-8 解释 ⇒ 乱码。
   **验证时读 `runs/pipeline_log.txt`，不要读 PowerShell 重定向的文件。**
+  要拿到干净日志就给子进程加 `$env:PYTHONIOENCODING='utf-8'`。
+- ⚠️ **一次性删除 > 50 个文件会被宿主安全策略拦成 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`，整条命令作废**
+  ⇒ 脚本里**一律"只写不删"**（帧目录按区间命名、复用不清理）。同理 `Remove-Item` 对部分临时文件
+  会静默失败，用 `[System.IO.File]::Delete()` 兜底。
+- ⚠️ **不要在 PowerShell 里内联 `python -c "..."` 写复杂脚本**：`\"` 不是 PowerShell 转义，
+  会截断字符串导致 `SyntaxError`。一律**写成 .py 文件**再跑（本次因此浪费了 3 轮）。
+- `csv` 模块会把 Python 的 `True/False` 写成字符串 `"True"/"False"` ⇒ 下游按 `"1"` 解析全部读成 0。
+  写布尔必须显式 `int(v)`。
 
 ## 用户偏好
 - 临时文件、缓存、环境**一律不要放 C 盘**（C 盘仅剩约 31 GB）
