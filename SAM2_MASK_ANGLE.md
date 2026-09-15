@@ -4,7 +4,8 @@
 （`seg` → `angle_mask`），并在本机做了精度与实时性的实测。**精度三项全面优于原方案**，
 实时性在 `512 + fp16` 配置下达到 30 fps 的传播速度。
 
-**分支**：`feature/sam2-video-mask`（从 `main` 切出）
+**分支**：`sam2-video-mask`（从 `main` 切出；本机 git 无法创建带斜杠的嵌套引用名
+`refs/heads/feature/xxx`，故用扁平名。见文末"环境备注"）
 **入口**：`scripts/rocket_seg.py`（分割）、`scripts/rocket_mask_angle.py`（测角）、
 `pipeline.py --sam`（接进流水线）
 
@@ -297,3 +298,16 @@ E:\Anaconda\envs\yolo26\python.exe pipeline.py --sam --video-out
 
 *所有数字可在 `runs/seg/`、`runs/angle_mask/`、`runs/bench_*.json` 下复核；
 除 `seg` 阶段外，其余分析与验证脚本均可无 GPU 重跑。*
+
+---
+
+## 附：本次遇到的三个环境问题（都已绕过，记录备查）
+
+| 问题 | 现象 | 处理 |
+|---|---|---|
+| **git 无法创建带斜杠的嵌套引用名** | `git checkout -b feature/x` / `git branch feature/x main` **打印成功且 exit 0，但 `refs/heads/feature/x` 根本没被创建**；HEAD 却被改写 ⇒ 仓库进入"未出生分支"状态，`git status` 把 122 个已提交文件全列成 `A` | 改用扁平分支名 `sam2-video-mask`；恢复办法 `git symbolic-ref HEAD refs/heads/main` |
+| **SAM2ImagePredictor 与 torch 2.14 不兼容** | `set_image()` 里 `permute(...).view(...)` 报 `view size is not compatible with input tensor's size and stride` | 不改第三方源码；旋转注入测试改用**单帧序列 + 视频预测器**（也正好更贴近部署路径） |
+| **批量删除被安全策略拦截** | 脚本里 `shutil.rmtree` 一个 200 帧的帧目录被拦成 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`，整条命令作废 | 脚本改为**只写不删**：帧目录按区间命名、复用不清理（在 `.cache/` 下，已被 git 忽略） |
+
+另外，`sam2` 的 CUDA 扩展 `_C` 未编译（未做 pip 安装），官方说明可忽略；
+`init_state` 的 `offload_video_to_cpu=True` 是长视频必需项，否则显存会爆。
