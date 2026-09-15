@@ -143,6 +143,7 @@ runs/
   DETECTION_STABILIZATION.md ← 第 2 步: 稳定化方案与踩坑
   ANGLE_ESTIMATION.md        ← 第 3 步: 测角算法与三层验证
   SAM2_MASK_ANGLE.md         ← 第 3 步(替代路线): SAM 2.1 掩码方案实现/实测/对拍
+  SAM2_CODE_TOUR.md          ← 想从零读代码看这个: 分 5 层的阅读路线 + 必读函数索引
   ATTITUDE_ESTIMATION.md     ← 第 4 步: 姿态可行性论证与结论
   README_TRAIN.md            ← 训练环境与操作手册
 ```
