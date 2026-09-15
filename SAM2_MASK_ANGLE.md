@@ -99,7 +99,6 @@ YOLO 稳定框 (第 2 步)                     SAM 2.1
 - 并且必须**连续 3 帧**不过才重锚定（单帧孤立跳变不算），与第 2 步"底边模式状态机"同理。
 
 ### 3.3 踩到的四个真坑（都已在代码里注释）
-
 | # | 坑 | 现象 | 修法 |
 |---|---|---|---|
 | 1 | **锚点帧没有框** | 前 ~10s 箭体还没被检出，`propagate_in_video` 直接抛 `cannot propagate... no prompt` | 锚点取"块内第一个有框的帧"；整块无框则跳过（连 `init_state` 都不做） |
@@ -111,13 +110,41 @@ YOLO 稳定框 (第 2 步)                     SAM 2.1
 
 | 文件 | 内容 | 大小 |
 |---|---|---|
-| `runs/seg/bounds_<tag>.npz` | **每帧逐行左右边界** int16 (n,H)×2，-1=无掩码 | ≈4 MB |
-| `runs/seg/mask_stats_<tag>.csv` | 逐帧 24 列体检与几何统计 | ≈0.3 MB |
+| `runs/seg/bounds_<tag>.npz` | **每帧逐行左右边界** int16 (n,H)×2，-1=无掩码 | ≈0.1 MB |
+| `runs/seg/mask_stats_<tag>.csv` | 逐帧 24 列体检与几何统计 | ≈0.25 MB |
 | `runs/seg/seg_meta_<tag>.json` | 运行配置与汇总 | — |
 | `runs/seg/seg_overlay.mp4` | 掩码 bbox + 稳定框 + 重锚定标记（`--make-video`） | — |
 
 存"逐行边界"而不是整张掩码，是为了让后续测角调参**不必再上 GPU**——
 这与原方案"检测存盘一次、后续分析免 GPU"的思路一致。
+
+### 3.5 可视化：怎么"看一眼"就判断谁对
+
+`scripts/make_compare_video.py` 把两条路线量到的**边**画在同一帧上，下面接一条曲线带：
+
+| 元素 | 含义 |
+|---|---|
+| 红点 | SAM 掩码的逐行左右边界（剪影轮廓） |
+| 蓝点 | 另一套 SAM 配置（`--vs2`，用于对比分辨率） |
+| 绿线 | 原方案在 ROI 内拟合出的左右边缘直线 |
+| 黄框 | 第 2 步的稳定检测框 |
+| 曲线带·上 | 全程 φ(t)：绿=原方案，红=SAM，蓝=另一配置 |
+| 曲线带·下 | **Δφ = SAM − 原方案**（单独刻度），差异最直观的呈现 |
+
+```powershell
+python scripts/make_compare_video.py --tag s512                 # 单路线对照
+python scripts/make_compare_video.py --tag s512 --vs2 s1024     # 两种分辨率同屏
+python scripts/make_compare_video.py --tag s512 --start 1300 --end 1560 --slow 2
+```
+
+产物：`runs/angle_mask/compare_overlay_<tag>[_vs_<vs2>].mp4`（2203 帧 / 852×620 / 30 fps）
+与 `compare_overlay_<tag>[_vs_<vs2>]_stills.png`（6 帧抽帧拼图，便于快速浏览）。
+
+> 曲线带是**预渲染一次**再逐帧贴图 + 画游标的 —— 逐帧重画 852×4 条折线（纯 Python 循环）
+> 在 2203 帧上会明显拖慢生成；预渲染后整片只要约 10 s。
+
+**看的时候注意什么**：绿线在剪影**内部**、且并不与红点平行 —— 这就是第五节那个发现的可视化形态；
+底部 Δφ 曲线在降落前段能到 +2~3°，落地段收敛到 +0.8° 并稳定。
 
 ---
 
@@ -340,6 +367,9 @@ E:\Anaconda\envs\yolo26\python.exe scripts\_seg_vs_grad.py --tag s512 --frames 1
 
 # 7) 一键接进流水线(默认不跑, 加 --sam)
 E:\Anaconda\envs\yolo26\python.exe pipeline.py --sam --video-out
+
+# 8) 可视化对照视频(边线叠加 + φ(t)/Δφ 曲线带, 约 10 s)
+E:\Anaconda\envs\yolo26\python.exe scripts\make_compare_video.py --tag s512 --vs2 s1024
 ```
 
 ---
