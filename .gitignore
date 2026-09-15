@@ -28,6 +28,9 @@ envs/
 Ultralytics/
 .venv/
 venv/
+# SAM 2 官方仓库 (third_party/sam2, 用 git clone --depth 1 获取; 约 70 MB)
+# 复现方式见 SAM2_MASK_ANGLE.md: git clone --depth 1 https://github.com/facebookresearch/sam2.git third_party/sam2
+third_party/
 
 # ---------- 5. 模型权重 ----------
 # 默认全部排除, 只保留训练成品 (见文末例外规则)。
@@ -56,6 +59,16 @@ runs/angle/angles_smoke*.json
 
 # ---------- 8. 日志 ----------
 *.log
+
+# ---------- 8b. SAM 2 分割产物 ----------
+# 逐行边界的 npz (全片约 100 KB) 与统计 CSV 入库, 便于无 GPU 复核;
+# 打包位掩码 bin (113 MB)、放大图、探针中间图不入库。
+runs/seg/*.bin
+runs/seg/zoom_*.png
+runs/seg/probe_*.png
+# 冒烟测试产物(与 runs/angle/angles_smoke* 同规矩, 不入库)
+runs/seg/*_smoke.*
+runs/angle_mask/*_smoke.*
 
 # ---------- 9. IDE / 编辑器 ----------
 .idea/

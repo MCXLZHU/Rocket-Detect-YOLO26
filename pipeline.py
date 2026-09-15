@@ -58,6 +58,7 @@ LOG = PROJECT / "runs" / "pipeline_log.txt"
 
 DIAG, ANG, ATT = (PROJECT / "runs" / "diag", PROJECT / "runs" / "angle",
                   PROJECT / "runs" / "attitude")
+SEGOUT, ANGM = PROJECT / "runs" / "seg", PROJECT / "runs" / "angle_mask"
 
 
 # ==========================================================================
@@ -102,6 +103,19 @@ def _stages(dets_tag: str):
                         str(a.l_over_d), "--tag", "ld"])
         return out
 
+    def seg(a):
+        """SAM 2.1 视频模式分割箭体轮廓(方案 B)。需要 third_party/sam2 + 权重。"""
+        cmd = [PY, str(S / "rocket_seg.py"), "--dets-tag", dets_tag,
+               "--tag", dets_tag, "--model", a.sam_model,
+               "--image-size", str(a.sam_imgsz), "--chunk", str(a.sam_chunk)]
+        if a.video_out:
+            cmd.append("--make-video")
+        return [cmd]
+
+    def angle_mask(a):
+        return [[PY, str(S / "rocket_mask_angle.py"), "--tag", dets_tag,
+                 "--dets-tag", dets_tag, "--compare"]]
+
     return [
         Stage("detect", "YOLO 低阈值逐帧推理(需 GPU)",
               [DIAG / f"dets_{dets_tag}.json"], detect),
@@ -109,6 +123,11 @@ def _stages(dets_tag: str):
               [DIAG / "stabilize_report.txt"], stabilize, ("detect",)),
         Stage("angle", "ROI 边缘检测 → 倾角 φ(t)",
               [ANG / "angles.csv", ANG / "angles.json"], angle, ("detect",)),
+        Stage("seg", "SAM 2.1 掩码轮廓分割(方案 B, 需 GPU + third_party/sam2)",
+              [SEGOUT / f"bounds_{dets_tag}.npz",
+               SEGOUT / f"mask_stats_{dets_tag}.csv"], seg, ("detect",)),
+        Stage("angle_mask", "掩码轮廓 → 倾角 φ(t) + 与原方案对拍",
+              [ANGM / f"angles_{dets_tag}.csv"], angle_mask, ("seg",)),
         Stage("attitude", "相对倾角 + 相机核查 (+可选 β)",
               [ATT / "attitude.csv", ATT / "validate.txt"], attitude,
               ("angle",)),
@@ -146,6 +165,8 @@ def summarize(dets_tag: str) -> str:
 
     def p(s=""):
         L.append(s)
+
+    groups = [(45, 69), (25, 45), (11, 25)]     # 分段统计用的时段
 
     meta_f = DIAG / f"dets_{dets_tag}.json"
     att_f = ATT / "attitude.json"
@@ -199,7 +220,6 @@ def summarize(dets_tag: str) -> str:
         p("[3] 倾角 φ(t)    (相对图像竖直, 正=顶端右倾)")
         p(f"      有效帧 {len(ok)}/{len(a['frames'])}   基准 φ_ref = "
           f"{a['info']['ref']:+.3f}°(落地 45-66s)")
-        groups = [(45, 69), (25, 45), (11, 25)]
         for lo, hi in groups:
             m = [r["phi_deg"] for r in ok if lo <= r["frame"] / fps < hi]
             if len(m) < 3:
@@ -209,6 +229,41 @@ def summarize(dets_tag: str) -> str:
             p(f"      {lo:>2}-{hi}s: n={len(m):>3}  φ中位 "
               f"{sorted(m)[len(m) // 2]:+.2f}°  σ {sd:.3f}°  "
               f"极差 {max(m) - min(m):.2f}°")
+        p()
+
+    # --- SAM 掩码路线(可选) ---
+    am = ANGM / f"angles_{dets_tag}.json"
+    if not am.exists() and ANGM.exists():
+        # 退化时取"最新的非冒烟"产物, 不要按文件名排序(angles_s512 < angles_smoke,
+        # 排序会把冒烟结果当成正式结果)。
+        cand = [x for x in ANGM.glob("angles_*.json") if "smoke" not in x.name]
+        if cand:
+            am = max(cand, key=lambda x: x.stat().st_mtime)
+    if am.exists():
+        a2 = json.loads(am.read_text(encoding="utf-8"))
+        fps2 = a2["info"]["fps"]
+        ok2 = [r for r in a2["frames"] if r["ok"]]
+        stag = am.stem.replace("angles_", "")
+        p("-" * 78)
+        p(f"[3b] 倾角 φ(t) —— SAM 2.1 掩码路线  (tag={stag}, "
+          f"imgsz={a2['info'].get('image_size', '?')}, "
+          f"{a2['info'].get('model', '?')})")
+        p(f"      有效帧 {len(ok2)}/{len(a2['frames'])}   基准 φ_ref = "
+          f"{a2['info']['ref']:+.3f}°(落地 45-66s)")
+        for lo, hi in groups:
+            m = [r["phi_deg"] for r in ok2 if lo <= r["frame"] / fps2 < hi]
+            if len(m) < 3:
+                continue
+            mu = sum(m) / len(m)
+            sd = (sum((x - mu) ** 2 for x in m) / len(m)) ** 0.5
+            p(f"      {lo:>2}-{hi}s: n={len(m):>3}  φ中位 "
+              f"{sorted(m)[len(m) // 2]:+.2f}°  σ {sd:.3f}°  "
+              f"极差 {max(m) - min(m):.2f}°")
+        cmp_f = ANGM / f"compare_{stag}.txt"
+        if cmp_f.exists():
+            for ln in cmp_f.read_text(encoding="utf-8").splitlines():
+                if "落地段" in ln or "Δφ = SAM" in ln or "w_body(SAM" in ln:
+                    p("      " + ln.strip())
         p()
 
     if att_f.exists():
@@ -281,6 +336,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--tag", default=None, help="检测结果标签, 默认 iou<int(iou*100)>")
     p.add_argument("--l-over-d", type=float, default=float("nan"),
                    help="火箭真实长径比; 给出才计算面外角 β")
+    p.add_argument("--sam", action="store_true",
+                   help="额外跑 SAM 2.1 掩码路线(seg -> angle_mask); "
+                        "需要 third_party/sam2 与 weights/sam2.1_hiera_*.pt")
+    p.add_argument("--sam-model", default="tiny", choices=["tiny", "small"],
+                   help="SAM 2.1 规格(默认 tiny)")
+    p.add_argument("--sam-imgsz", type=int, default=512,
+                   help="SAM 2.1 输入边长(默认 512; 1024 更准但慢约 3 倍)")
+    p.add_argument("--sam-chunk", type=int, default=200,
+                   help="SAM 分块帧数(默认 200; 显存不足会自动减半重试)")
     p.add_argument("--summary", action="store_true", help="只打印汇总")
     p.add_argument("--list", action="store_true", help="列出阶段与产物")
     return p.parse_args()
@@ -304,7 +368,10 @@ def main() -> None:
         return
 
     names = [s.name for s in stages]
-    sel = list(names)
+    # SAM 路线(seg / angle_mask)需要 GPU 与 third_party/sam2, 属于**可选**阶段:
+    # 不加 --sam 时默认不跑, 保证原有 detect->stabilize->angle->attitude 行为不变。
+    OPT_IN = ("seg", "angle_mask")
+    sel = list(names) if a.sam else [n for n in names if n not in OPT_IN]
     if a.only:
         want = [x.strip() for x in a.only.split(",") if x.strip()]
         bad = [x for x in want if x not in names]
@@ -323,6 +390,8 @@ def main() -> None:
                 print(f"[x] 未知阶段: {a.to}; 可选 {names}")
                 sys.exit(2)
             sel = [x for x in sel if names.index(x) <= names.index(a.to)]
+        if not a.sam:
+            sel = [x for x in sel if x not in OPT_IN]
 
     LOG.parent.mkdir(parents=True, exist_ok=True)
     print("=" * 78)
@@ -332,6 +401,9 @@ def main() -> None:
     print(f"  检测标签  : {dets_tag}   (conf={a.conf}, iou={a.iou})")
     print(f"  标注视频  : {'开' if a.video_out else '关(--video-out 打开)'}")
     print(f"  长径比    : {a.l_over_d if math.isfinite(a.l_over_d) else '未提供(不算 β)'}")
+    print(f"  SAM 路线  : " + (f"开(sam2.1_hiera_{a.sam_model}, "
+                               f"imgsz={a.sam_imgsz}, chunk={a.sam_chunk})"
+                               if a.sam else "关(--sam 打开)"))
     print(f"  日志      : {LOG.relative_to(PROJECT)}")
     print()
 

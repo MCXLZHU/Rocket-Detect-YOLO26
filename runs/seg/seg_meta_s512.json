@@ -1,0 +1,19 @@
+{
+ "W": 852,
+ "H": 480,
+ "fps": 30.000008511123614,
+ "video": "1-朱雀3号瑶二，再入回收全过程，这次是真的稳啊！纯净的像cg。-480P 标清-AVC.mp4",
+ "n_frame": 2203,
+ "model": "tiny",
+ "image_size": 512,
+ "half": true,
+ "chunk": 200,
+ "elapsed_s": 109.7,
+ "n_track": 1875,
+ "n_ok": 1804,
+ "n_reanchor": 12,
+ "start": 0,
+ "end": 2203,
+ "save_masks": false,
+ "mask_rec_bytes": 51120
+}
