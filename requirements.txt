@@ -1,0 +1,27 @@
+# Rocket Detect — YOLO26s 训练依赖
+#
+# 重要: torch / torchvision 不在这里安装!
+#   * 本机网络无法访问 download.pytorch.org(被代理拦截 502), 且 PyPI 上的 torch 是 CPU 版;
+#   * 正确做法是先按 setup_env.ps1 从国内镜像装好 CUDA 版 torch, 再执行:
+#         pip install -r requirements.txt
+#     pip 会识别到 torch 已满足, 不会用 CPU 版覆盖它。
+#
+# 已验证可用组合:  torch 2.14.0+cu130  +  torchvision 0.29.0+cu130  (Python 3.12 / Windows)
+
+# YOLO26 系列需要 ultralytics >= 8.4.0 (低于该版本不识别 yolo26*.pt)
+ultralytics>=8.4.0
+
+# 数据/图像/可视化
+numpy>=1.24
+pyyaml>=6.0
+opencv-python>=4.9
+pillow>=10.0
+matplotlib>=3.8
+pandas>=2.0
+seaborn>=0.13
+tqdm>=4.66
+
+# 训练监控 / 资源
+psutil>=5.9
+py-cpuinfo>=9.0
+tensorboard>=2.14

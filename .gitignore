@@ -1,0 +1,71 @@
+# ==========================================================================
+# RocketAttitudeEstimation — 忽略规则
+#
+# 跟踪原则:
+#   入库 —— 源码、文档、配置、可复现的分析产物(报告/CSV/JSON/图表/关键帧)、
+#           训练成品模型
+#   排除 —— 数据集、缓存/环境、中间与冒烟权重、可重新生成的派生视频
+# ==========================================================================
+
+# ---------- 1. 数据集 (18 GB / 8.3 万文件, 不可入库) ----------
+Rocket Detect.v37i.yolo26/
+
+# ---------- 2. 缓存与临时文件 (2.2 GB, 含 1.9 GB 的 torch wheel) ----------
+.cache/
+*.whl
+*.body
+*.tmp
+*.bak
+*~
+
+# ---------- 3. Python 字节码 ----------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ---------- 4. 环境与第三方源码 (应为空目录 / 工作区外) ----------
+envs/
+Ultralytics/
+.venv/
+venv/
+
+# ---------- 5. 模型权重 ----------
+# 默认全部排除, 只保留训练成品 (见文末例外规则)。
+# 官方预训练权重 weights/yolo26s.pt、yolo26n.pt 可从 ultralytics 重新获取。
+*.pt
+*.pth
+*.onnx
+*.engine
+*.trt
+weights/*.pt
+
+# ---------- 6. 派生的可视化视频 (约 34 MB, 由 pipeline.py 可复现) ----------
+runs/**/*.mp4
+
+# ---------- 7. 冒烟测试 / 调试产物 ----------
+runs/smoke_run/
+runs/smoke_test/
+runs/smoke_test2/
+# 测角调试图 (中间调试用, 正式结论见 angle_timeline.png / validate.txt)
+runs/angle/debug/
+runs/angle/debug2/
+runs/angle/debug3/
+# 冒烟测试的倾角结果
+runs/angle/angles_smoke*.csv
+runs/angle/angles_smoke*.json
+
+# ---------- 8. 日志 ----------
+*.log
+
+# ---------- 9. IDE / 编辑器 ----------
+.idea/
+.vscode/
+*.swp
+
+# ==========================================================================
+# 例外: 必须跟踪的文件
+# ==========================================================================
+# 训练成品模型 (100 轮 / 10.9 h)。check_video.py、diag_video_detections.py、
+# confusion_check.py、eval_clean_subset.py 都把它硬编码为默认权重,
+# 不跟踪则克隆后无法直接跑检测与 pipeline.py。
+!/runs/rocket_yolo26s/weights/best.pt

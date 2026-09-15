@@ -1,0 +1,98 @@
+{
+  "root": "E:\\RocketAttitudeEstimation\\Rocket Detect.v37i.yolo26",
+  "splits": {
+    "train": {
+      "images": 24435,
+      "labels": 24435,
+      "image_only_no_label": 0,
+      "label_only_no_image": 0,
+      "empty_label_files": 5010,
+      "total_boxes": 27791,
+      "class_distribution": {
+        "0": 11000,
+        "1": 12657,
+        "2": 4134
+      },
+      "bad_lines_sample": [],
+      "out_of_range_sample": [],
+      "degenerate_sample": [],
+      "unreadable_images": [],
+      "image_sizes_top": [
+        [
+          [
+            640,
+            360
+          ],
+          24435
+        ]
+      ],
+      "num_distinct_sizes": 1,
+      "imgs_with_boxes": 19425,
+      "max_boxes_per_img": 5
+    },
+    "valid": {
+      "images": 2428,
+      "labels": 2428,
+      "image_only_no_label": 0,
+      "label_only_no_image": 0,
+      "empty_label_files": 493,
+      "total_boxes": 2740,
+      "class_distribution": {
+        "0": 1097,
+        "1": 1231,
+        "2": 412
+      },
+      "bad_lines_sample": [],
+      "out_of_range_sample": [],
+      "degenerate_sample": [],
+      "unreadable_images": [],
+      "image_sizes_top": [
+        [
+          [
+            640,
+            360
+          ],
+          2428
+        ]
+      ],
+      "num_distinct_sizes": 1,
+      "imgs_with_boxes": 1935,
+      "max_boxes_per_img": 4
+    },
+    "test": {
+      "images": 1286,
+      "labels": 1286,
+      "image_only_no_label": 0,
+      "label_only_no_image": 0,
+      "empty_label_files": 249,
+      "total_boxes": 1491,
+      "class_distribution": {
+        "0": 593,
+        "1": 675,
+        "2": 223
+      },
+      "bad_lines_sample": [],
+      "out_of_range_sample": [],
+      "degenerate_sample": [],
+      "unreadable_images": [],
+      "image_sizes_top": [
+        [
+          [
+            640,
+            360
+          ],
+          1286
+        ]
+      ],
+      "num_distinct_sizes": 1,
+      "imgs_with_boxes": 1037,
+      "max_boxes_per_img": 4
+    }
+  },
+  "global_class_distribution": {
+    "0": 12690,
+    "1": 14563,
+    "2": 4769
+  },
+  "problems": []
+}

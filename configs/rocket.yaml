@@ -1,0 +1,17 @@
+# =============================================================
+# Rocket Detect v37i  —  Ultralytics 数据集配置
+# 类别: 0 Engine Flames(尾焰)  1 Rocket Body(箭体)  2 Space(入轨后的微小光点)
+# 说明: 原始 data.yaml 里写的是 "../train/images"(Roboflow 导出习惯),
+#      这里改为显式 path + 相对子路径, 不依赖 Ultralytics 的 "../" 兜底逻辑,
+#      在任何工作目录下执行都能正确定位数据。
+# =============================================================
+
+# 数据集根目录(绝对路径, 路径含空格与点号, 必须加引号)
+path: "E:/RocketAttitudeEstimation/Rocket Detect.v37i.yolo26"
+
+train: train/images
+val: valid/images
+test: test/images
+
+nc: 3
+names: ['Engine Flames', 'Rocket Body', 'Space']
