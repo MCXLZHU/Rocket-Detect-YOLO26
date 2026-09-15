@@ -22,6 +22,7 @@
 
 用法:
     python scripts/rocket_mask_angle.py --tag iou70 --compare
+    python scripts/rocket_mask_angle.py --tag s1024 --compare --vs s512   # 与另一套 SAM 配置对比
     python scripts/rocket_mask_angle.py --tag smoke --compare
 """
 
@@ -186,10 +187,22 @@ def run(tag: str, dets_tag: str = "iou70",
     return res, info
 
 
-def compare(res: list[AngleResult], dets_tag: str = "iou70") -> str:
-    p = ANG / "angles.json"
+def compare(res: list[AngleResult], dets_tag: str = "iou70",
+            vs: str = "original") -> str:
+    """与另一路线/另一配置逐帧对拍。
+
+    vs="original"      -> 对比 runs/angle/angles.json(原方案 ROI 梯度边缘)
+    vs="<seg tag>"     -> 对比 runs/angle_mask/angles_<tag>.json(另一套 SAM 配置,
+                          例如用 s1024 对比 s512, 量化分辨率带来的差异)
+    """
+    if vs == "original":
+        p = ANG / "angles.json"
+        label = "原方案 (ROI 梯度边缘)"
+    else:
+        p = OUT_DIR / f"angles_{vs}.json"
+        label = f"SAM 掩码路线 tag={vs}"
     if not p.exists():
-        return "(未找到 runs/angle/angles.json, 跳过对拍)"
+        return f"(未找到 {p}, 跳过对拍)"
     a = json.loads(p.read_text(encoding="utf-8"))["frames"]
     fps = json.loads((DETS / f"dets_{dets_tag}.json").read_text(
         encoding="utf-8"))["meta"]["fps"]
@@ -213,7 +226,7 @@ def compare(res: list[AngleResult], dets_tag: str = "iou70") -> str:
                 land_o.append(float(ra["phi_smooth"]))
             if rb.ok and np.isfinite(rb.phi_smooth):
                 land_s.append(float(rb.phi_smooth))
-    L = ["", "=== 与原方案 (ROI 梯度边缘) 对拍 ===",
+    L = ["", f"=== 与 {label} 对拍 ===",
          f"  两路线同时有效的帧数: {len(dp)}"]
     if dp:
         d = np.array(dp)
@@ -232,10 +245,12 @@ def compare(res: list[AngleResult], dets_tag: str = "iou70") -> str:
                          f"{np.median(d_arr[m]):+.3f}° / {d_arr[m].std():.3f}°")
     if dw:
         r = np.array(dw)
-        L.append(f"  w_body(SAM / 原方案):  中位 {np.median(r):.2f}  σ {r.std():.2f}  "
+        L.append(f"  w_body(本路线 / 对照):  中位 {np.median(r):.2f}  σ {r.std():.2f}  "
                  f"范围 {r.min():.2f}~{r.max():.2f}")
-        L.append("    ⇒ 比值稳定在 1 附近说明两者量的是同一宽度; 明显 >1 说明"
+        L.append("    ⇒ 对比原方案时, 比值稳定在 1 附近说明两者量的是同一宽度; 明显 >1 说明"
                  "原方案量到的宽度偏窄(可能是涂装条纹而非筒身轮廓)。")
+        L.append("    ⇒ 对比另一套 SAM 配置时, 比值应≈1(同为剪影口径); 若偏离则说明"
+                 "分辨率改变了掩码边界的落点。")
     if land_s and land_o:
         L.append(f"  落地段(46-66s) φ:  SAM σ={np.std(land_s):.3f}° "
                  f"(均值 {np.mean(land_s):+.3f}°, n={len(land_s)})")
@@ -251,6 +266,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--tag", default="iou70")
     p.add_argument("--dets-tag", default="iou70")
     p.add_argument("--compare", action="store_true")
+    p.add_argument("--vs", default="original",
+                   help="对拍对象: original(原方案) 或另一个 seg tag(如 s512)")
     p.add_argument("--out-tag", default="")
     return p.parse_args()
 
@@ -268,9 +285,10 @@ def main() -> None:
     RA.save(res, info, a.out_tag or a.tag)
     RA.OUT_DIR = old
     if a.compare:
-        txt = compare(res, a.dets_tag)
+        txt = compare(res, a.dets_tag, a.vs)
         print(txt, flush=True)
-        (OUT_DIR / f"compare_{a.out_tag or a.tag}.txt").write_text(
+        sfx = "" if a.vs == "original" else f"_vs_{a.vs}"
+        (OUT_DIR / f"compare_{a.out_tag or a.tag}{sfx}.txt").write_text(
             txt, encoding="utf-8")
 
 

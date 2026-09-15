@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gc
 import json
 import os
 import shutil
@@ -80,6 +81,21 @@ from rocket_track import TrackerConfig, iou_xyxy, track_frames  # noqa: E402
 DETS_DIR = PROJECT / "runs" / "diag"
 OUT_DIR = PROJECT / "runs" / "seg"
 WEIGHTS = PROJECT / "weights"
+
+
+def _mem_str() -> str:
+    """一行内存快照: 进程 RSS + 已分配显存。分块跑时用它确认"每块真的释放了"。"""
+    try:
+        import psutil
+        rss = psutil.Process().memory_info().rss / 2 ** 30
+    except Exception:
+        rss = float("nan")
+    try:
+        import torch as _t
+        v = _t.cuda.memory_allocated() / 2 ** 20 if _t.cuda.is_available() else 0.0
+    except Exception:
+        v = 0.0
+    return f"[RAM {rss:.2f}GB  VRAM {v:.0f}MB]"
 
 CFG_FILE = {
     "tiny": "configs/sam2.1/sam2.1_hiera_t.yaml",
@@ -378,6 +394,11 @@ class Sam2Segmenter:
                       f"(全局 {idx_of_local[anchor]})", flush=True)
         self.predictor.reset_state(state)
         del state
+        # 显式回收: inference_state 里有"帧张量 ←→ output_dict"的引用环, 光 del 不一定
+        # 立刻释放(1024² 每块 200×12.6MB ≈ 2.5GB)。这是**防御性**动作, 不是已证实的
+        # 泄漏 —— 早先"1024 全片跑到第 5 块崩溃"的真因是**命令被 120s 上限杀掉**
+        # (两次都在 2m01s 断掉, 而单独重跑那一块只要 30s 就通过), 不是内存累积。
+        gc.collect()
         torch.cuda.empty_cache()
         return res, packed
 
@@ -454,7 +475,8 @@ def run(cfg: SegConfig | None = None, dets_tag: str = "iou70",
                 boxes[k] = np.asarray(o.box, float)
             if writer is not None:
                 frames_cache[k] = fr
-        print(f"[块 {i}-{j}) {len(local_of)} 帧, 有框 {len(boxes)}", flush=True)
+        print(f"[块 {i}-{j}) {len(local_of)} 帧, 有框 {len(boxes)}  "
+              f"{_mem_str()}", flush=True)
         if not local_of:
             break
         while True:
@@ -487,10 +509,15 @@ def run(cfg: SegConfig | None = None, dets_tag: str = "iou70",
             for k in range(i, j):
                 mask_fp.write(packed.get(k) or bytes(rec_bytes))
         print(f"    完成 {len(r)} 帧, 可信 {sum(1 for v in r.values() if v.ok)}, "
-              f"重锚定 {sum(1 for v in r.values() if v.reanchored)}", flush=True)
+              f"重锚定 {sum(1 for v in r.values() if v.reanchored)}  "
+              f"{_mem_str()}", flush=True)
         if writer is not None:
             for k, fr in frames_cache.items():
                 writer.write(_draw(fr, outs[k], all_res.get(k), fps))
+        frames_cache.clear()
+        r.clear()
+        packed.clear()
+        gc.collect()
         i = j
     cap.release()
     if writer is not None:
