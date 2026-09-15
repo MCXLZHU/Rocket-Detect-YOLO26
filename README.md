@@ -63,12 +63,15 @@ attitude 66s（相机配准占大头）· 图表 ~10s。日志写在 `runs/pipel
 pipeline.py --sam --video-out        # = detect -> stabilize -> angle -> seg -> angle_mask -> attitude
 python scripts/bench_sam2.py --model tiny --image-size 512 --half   # 实时性基准
 python scripts/validate_mask_angle.py --tag iou70                   # 旋转注入验证
-python scripts/make_compare_video.py --tag s512 --vs2 s1024         # 两路线对照视频
+python scripts/compare_video.py --tag s512 --vs2 s1024 --stills 6   # 对照可视化
 ```
 
-**看一眼效果**：`runs/angle_mask/compare_overlay_s512_vs_s1024.mp4`
-（红点 = SAM 剪影边界，蓝点 = 另一分辨率，绿线 = 原方案拟合边，底部曲线带
-上段是 φ(t)、下段是 Δφ = SAM − 原方案）。同目录还有 6 帧抽帧拼图 `*_stills.png`。
+**看一眼效果**（不用打开视频就能看）：
+- `runs/seg/compare_timeline_s512_vs_s1024.png` —— 全片曲线对照（上段 φ(t)，下段 Δφ = SAM − 原方案）
+- `runs/seg/compare_stills_s512_vs_s1024.png` —— 6 帧抽帧拼图
+- `runs/seg/compare_overlay_s512_vs_s1024.mp4` —— 逐帧视频：SAM 剪影（填充）+
+  s1024 轮廓（紫描边）+ SAM 轴线（品红）+ 原方案拟合边（绿）+ 稳定框（青）+ 中文读数，
+  底部是 φ(t) 与 Δφ 双段曲线带（带当前时刻游标）
 
 **为什么不猜也能测角**：箭体是**回旋体**，其剪影左右边界的中点连线严格等于轴线在像面的投影。
 原方案必须靠"左右边平行 + 间距恒定"两条先验去挑哪两条边属于同一根筒子；掩码直接给出剪影，不需要猜。
@@ -118,7 +121,7 @@ scripts/
   _seg_diag.py               ← SAM 路线: 可用率诊断
   _seg_vs_grad.py            ← SAM 路线: 掩码边界 vs 梯度拟合边线的逐帧对拍
   _seg_probe.py              ← SAM 路线: 掩码圈住了什么(宽度口径探测)
-  make_compare_video.py      ← SAM 路线: 两路线对照视频(边线叠加 + φ(t)/Δφ 曲线带)
+  compare_video.py           ← SAM 路线: 对照可视化(剪影/轴线/两条边线 + φ(t)+Δφ 双段曲线带)
   rocket_attitude.py         ← 第 4 步: 相机配准 + 夹角换算 + 参数化 β
   validate_attitude.py       ← 第 4 步: 六节验证报告(含相机估计器灵敏度校验)
   attitude_report.py         ← 第 4 步: 姿态时间线图 + 标注视频
@@ -128,9 +131,9 @@ runs/
   rocket_yolo26s/            ← 训练产物(best.pt 在用)
   diag/                      ← 检测存盘 JSON + 稳定化报告 + 曲线 + 标注视频
   angle/                     ← 倾角 CSV/JSON + 时间线图 + 标注视频 + 验证报告
-  seg/                       ← SAM 掩码逐行边界 npz + 逐帧体检 CSV + 叠加视频
+  seg/                       ← SAM 掩码逐行边界 npz + 逐帧体检 CSV
+                               + 对照可视化 compare_overlay_*.mp4 / compare_timeline_*.png
   angle_mask/                ← 掩码路线的倾角 CSV/JSON + 对拍报告 + 旋转注入报告
-                               + 两路线对照视频 compare_overlay_*.mp4
   attitude/                  ← 姿态 CSV/JSON + 时间线图 + 标注视频 + 验证报告
   pipeline_log.txt           ← 流水线完整日志
 

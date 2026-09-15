@@ -120,31 +120,41 @@ YOLO 稳定框 (第 2 步)                     SAM 2.1
 
 ### 3.5 可视化：怎么"看一眼"就判断谁对
 
-`scripts/make_compare_video.py` 把两条路线量到的**边**画在同一帧上，下面接一条曲线带：
+`scripts/compare_video.py` 把两条路线量到的**边**画在同一帧上，下面接一条双段曲线带：
 
 | 元素 | 含义 |
 |---|---|
-| 红点 | SAM 掩码的逐行左右边界（剪影轮廓） |
-| 蓝点 | 另一套 SAM 配置（`--vs2`，用于对比分辨率） |
+| 淡蓝填充 | SAM 掩码剪影（逐行 xl..xr 重建）—— 直观看到"分割圈住了什么" |
+| 紫描边 | 另一套 SAM 配置的剪影（`--vs2`），用于对比分辨率 |
+| 品红线 | SAM 剪影拟合出的轴线（含两端的筒身段标记，即真正参与拟合的行范围） |
 | 绿线 | 原方案在 ROI 内拟合出的左右边缘直线 |
-| 黄框 | 第 2 步的稳定检测框 |
-| 曲线带·上 | 全程 φ(t)：绿=原方案，红=SAM，蓝=另一配置 |
-| 曲线带·下 | **Δφ = SAM − 原方案**（单独刻度），差异最直观的呈现 |
+| 青框 | 第 2 步的稳定检测框 |
+| 中文信息栏 | 本帧两条路线的 φ 与拟合宽度、Δφ、分割体检结论、是否重锚定 |
+| 曲线带·上 | 全程 φ(t)：品红=SAM，绿=原方案，蓝=另一配置；顶部另有逐帧有效性条带 |
+| 曲线带·下 | **Δφ = SAM − 原方案**（独立刻度）—— 两条线只差 0.7~0.8°，画在同一根 ±8° 轴上几乎重合 |
 
 ```powershell
-python scripts/make_compare_video.py --tag s512                 # 单路线对照
-python scripts/make_compare_video.py --tag s512 --vs2 s1024     # 两种分辨率同屏
-python scripts/make_compare_video.py --tag s512 --start 1300 --end 1560 --slow 2
+python scripts/compare_video.py --tag s1024                     # 单配置
+python scripts/compare_video.py --tag s512 --vs2 s1024          # 两种分辨率同屏
+python scripts/compare_video.py --tag s512 --stills 6           # 额外出抽帧拼图
+python scripts/compare_video.py --tag s512 --start 1400 --end 1600   # 只看落地段
+python scripts/compare_video.py --tag s1024 --no-video          # 只要曲线对照图
 ```
 
-产物：`runs/angle_mask/compare_overlay_<tag>[_vs_<vs2>].mp4`（2203 帧 / 852×620 / 30 fps）
-与 `compare_overlay_<tag>[_vs_<vs2>]_stills.png`（6 帧抽帧拼图，便于快速浏览）。
+产物（都在 `runs/seg/`）：
 
-> 曲线带是**预渲染一次**再逐帧贴图 + 画游标的 —— 逐帧重画 852×4 条折线（纯 Python 循环）
-> 在 2203 帧上会明显拖慢生成；预渲染后整片只要约 10 s。
+| 文件 | 内容 |
+|---|---|
+| `compare_overlay_<tag>[_vs_<vs2>].mp4` | 2203 帧 / 852×(480+190) / 30 fps，逐帧叠加 + 曲线带游标 |
+| `compare_timeline_<tag>[_vs_<vs2>].png` | 全片曲线对照图（φ + Δφ + 有效性条带） |
+| `compare_stills_<tag>[_vs_<vs2>].png` | N 帧抽帧拼图（`--stills N`），不打开视频也能快速看 |
 
-**看的时候注意什么**：绿线在剪影**内部**、且并不与红点平行 —— 这就是第五节那个发现的可视化形态；
-底部 Δφ 曲线在降落前段能到 +2~3°，落地段收敛到 +0.8° 并稳定。
+> 两个实现细节：曲线带**预渲染一次**再逐帧贴图 + 画游标（逐帧重跑 matplotlib 要几分钟）；
+> 曲线带里的文字全部走 cv2 ⇒ **只能 ASCII**，中文必须用 PIL 渲染（`draw_frame` 那一路），
+> 否则会变成乱码方块并与相邻文字重叠 —— 这一版修掉了这个 bug。
+
+**看的时候注意什么**：绿线在剪影**内部**、且并不与红点/填充边缘平行 —— 这就是第五节那个发现的
+可视化形态；底部 Δφ 曲线在降落前段能到 +2~3°，落地段收敛到 +0.8° 并稳定。
 
 ---
 
@@ -368,8 +378,8 @@ E:\Anaconda\envs\yolo26\python.exe scripts\_seg_vs_grad.py --tag s512 --frames 1
 # 7) 一键接进流水线(默认不跑, 加 --sam)
 E:\Anaconda\envs\yolo26\python.exe pipeline.py --sam --video-out
 
-# 8) 可视化对照视频(边线叠加 + φ(t)/Δφ 曲线带, 约 10 s)
-E:\Anaconda\envs\yolo26\python.exe scripts\make_compare_video.py --tag s512 --vs2 s1024
+# 8) 可视化对照(剪影/轴线/两条边线 + φ(t)+Δφ 双段曲线带)
+E:\Anaconda\envs\yolo26\python.exe scripts\compare_video.py --tag s512 --vs2 s1024 --stills 6
 ```
 
 ---
