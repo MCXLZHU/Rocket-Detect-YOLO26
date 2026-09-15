@@ -252,9 +252,10 @@ def compare(res: list[AngleResult], dets_tag: str = "iou70",
         L.append("    ⇒ 对比另一套 SAM 配置时, 比值应≈1(同为剪影口径); 若偏离则说明"
                  "分辨率改变了掩码边界的落点。")
     if land_s and land_o:
-        L.append(f"  落地段(46-66s) φ:  SAM σ={np.std(land_s):.3f}° "
+        ref_name = "原方案" if vs == "original" else f"对照({vs})"
+        L.append(f"  落地段(46-66s) φ:  本路线 σ={np.std(land_s):.3f}° "
                  f"(均值 {np.mean(land_s):+.3f}°, n={len(land_s)})")
-        L.append(f"                      原方案 σ={np.std(land_o):.3f}° "
+        L.append(f"                      {ref_name} σ={np.std(land_o):.3f}° "
                  f"(均值 {np.mean(land_o):+.3f}°, n={len(land_o)})")
         L.append(f"  ⇒ 落地段真值为常数, σ 越小越稳; 差值 "
                  f"{np.std(land_s) - np.std(land_o):+.3f}°")
@@ -287,9 +288,10 @@ def main() -> None:
     if a.compare:
         txt = compare(res, a.dets_tag, a.vs)
         print(txt, flush=True)
-        sfx = "" if a.vs == "original" else f"_vs_{a.vs}"
-        (OUT_DIR / f"compare_{a.out_tag or a.tag}{sfx}.txt").write_text(
-            txt, encoding="utf-8")
+        # 命名保持可预测: compare_<tag>.txt(对比原方案) / compare_<tag>_vs_<vs>.txt(互拍)
+        name = (f"compare_{a.tag}.txt" if a.vs == "original"
+                else f"compare_{a.tag}_vs_{a.vs}.txt")
+        (OUT_DIR / name).write_text(txt, encoding="utf-8")
 
 
 if __name__ == "__main__":
