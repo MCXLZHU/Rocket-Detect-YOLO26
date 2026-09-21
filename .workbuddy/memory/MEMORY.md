@@ -13,6 +13,8 @@ YOLO26s 检测可回收火箭降落视频 → 检测稳定化 → 筒身倾角 �
 | `SAM2_MASK_ANGLE.md` | 第 3 步（**替代路线**）：SAM 2.1 掩码方案实现/实测/对拍 |
 | `SAM2_PROPOSAL.md` | SAM 2.1 方案细化与对比（导师建议的细化） |
 | `ATTITUDE_ESTIMATION.md` | 第 4 步：姿态反算 |
+| `SPEED_BENCH.md` | 本机处理速度实测：分阶段耗时/瓶颈定位/优化建议/实时性判定 |
+| `SAM2_CODE_TOUR.md` | SAM 2.1 代码阅读路线（分 5 层 + 必读函数索引） |
 | `README.md` | 流水线用法 + 已知限制 |
 | `README_TRAIN.md` | 训练环境与操作手册 |
 
@@ -21,7 +23,8 @@ YOLO26s 检测可回收火箭降落视频 → 检测稳定化 → 筒身倾角 �
 - torch 2.14.0+cu130 / ultralytics 8.4.147 / RTX 4060 Laptop 8 GB / CUDA 13.0
 - 缓存一律重定向到 `.cache`，**不写 C 盘**
 - **物理内存仅 15.7 GB，是最紧的资源**；每 worker 0.63~0.65 GB ⇒ `--workers 4`
-- GPU 默认功耗墙 55W，最大 140W
+- GPU 功耗墙：**默认 55W、当前实测 63~80W（自适应浮动）、硬件上限 140W**；
+  `SW Power Cap` 标志会 Active，但**实际功耗只有 36~54W ⇒ 不是瓶颈**（别去调它）
 
 ## 不可推翻的结论（已实测）
 1. **训练**：100 轮 / 10.9 h → mAP50 **0.928** / mAP50-95 0.569。**后 70 轮白跑**
@@ -89,6 +92,23 @@ YOLO26s 检测可回收火箭降落视频 → 检测稳定化 → 筒身倾角 �
 19. **画曲线图的取轴原则**：φ 轴按数据 auto 且**不强制对称**；Δφ 轴必须按**稳健分位**
     （p96×1.25 ⇒ ±2.0°）—— Δφ 中位仅 0.8° 而失稳帧尖峰能到 3~4°，按 max 取轴会让落地段的
     0.8° 被压成贴零直线。截顶帧数要打印+写进图内标题，不静默丢失。
+    图区内**没有安全位置放图例**（早期 φ 高到 +14°）⇒ 说明文字一律移到图外页脚，
+    图区顶部单开一条标注行。
+20. **本机速度实测（2026-09-21）**：整链路每帧 decode 1.03 / stabilize 0.10 / detect 21.07 /
+    seg 50.04(热抽帧，冷 78.41) / angle_mask 2.41 ms ⇒ **端到端 74.7 ms/帧（13.4 fps）**，
+    1024 为 167.3 ms（6.0 fps）。纯模型 512 = 载入 25.9 + 传播 23.6 ms（40.2 fps，1093MB）；
+    1024 = 52.9 + 91.6 ms（11.1 fps，3516MB）。**瓶颈不在 GPU**（利用率 42~57%、功耗 36~54W
+    远低于功耗墙）：@512 时 **CPU 侧 JPEG 帧载入与 GPU 传播各占一半**，只优化 GPU 封顶 ~25%。
+    **抽帧值 62.5s/全片**（冷热之差）。30fps 实时门槛 33.3ms ⇒ 慢 2.2 倍（热）；但项目是离线
+    分析，够用。⚠️ 冷/热抽帧差 36%、跨轮次机器状态差 20%+ ⇒ **比速度必须同条件同时测**。
+    工具：`scripts/bench_pipeline.py`（分阶段计时 + nvidia-smi 采样，用独立 tag 不碰正式产物）、
+    `bench_report.py`（出图/表）。踩坑：`nvidia-smi` 文本用定长窗口会把 `Active` 截成 `Acti`
+    误判"未限功耗"（按行解析）；对比不同分辨率必须带 `--det-source`，否则 `FileNotFoundError`
+    会让整段 3s "跑完"、被误读成"更快"。
+21. **交付物分两套，别混**：`runs/sam/`（`sam_angle_viz.py`）= **成果件，只看 SAM 路线**，
+    无原方案元素（无绿色梯度边线、无 Δφ 面板），汇报用；`runs/seg/compare_*`（`compare_video.py`）
+    = **对照件，与原方案对拍**，调参用。成果件曲线带下段是 **dφ/dt**，且必须用**窗内中心差分**
+    （±5 帧），直接画 CSV 里的 `dphi_dt`（相邻帧差分×fps）整片都是噪声。
 
 ## 一键流水线
 `python pipeline.py` → detect(GPU 36s) → stabilize(3s) → angle(33s) → attitude(66s)
@@ -138,7 +158,11 @@ SAM 路线是**可选**阶段：`pipeline.py --sam` → 额外跑 seg(≈120s GP
 - ⚠️ **做对比图先问"差异量级 vs 轴量级"**：两条路线只差 0.7~0.8°，画在同一根 ±8° 轴上
   完全看不出差异 —— 必须给差异量单独一个刻度（见 `compare_video.py` 的 Δφ 下段）。
 - **可视化入口**：`scripts/compare_video.py --tag s512 --vs2 s1024 --stills 6`
-  → `runs/seg/compare_overlay_*.mp4` / `compare_timeline_*.png` / `compare_stills_*.png`。
+  → `runs/seg/compare_overlay_*.mp4` / `compare_timeline_*.png` / `compare_stills_*.png`
+- **成果件入口**：`scripts/sam_angle_viz.py --tag s512 --stills 6`
+  → `runs/sam/overlay_s512.mp4` / `timeline_s512.png` / `stills_s512.png` / `summary_s512.txt`
+- **测速入口**：`scripts/bench_pipeline.py --tag bench512` + `scripts/bench_report.py`
+  → `runs/bench/pipeline_speed.json` / `speed_breakdown.png` / `speed_table.txt`。
 
 ## 本机环境坑
 - **PowerShell 工具输出会被吞**（连 `Write-Output` 都拿不到）：必须
