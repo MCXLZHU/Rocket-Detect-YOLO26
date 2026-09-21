@@ -1,0 +1,41 @@
+{
+ "runs": [
+  {
+   "model": "tiny",
+   "image_size": 512,
+   "half": true,
+   "compile": false,
+   "build_s": 0.99,
+   "params_M": 39.0,
+   "gpu": {
+    "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "total_mem_gb": 8.0,
+    "cc": "8.9",
+    "sm": 24
+   },
+   "prompt_box": [
+    399.2,
+    49.8,
+    436.7,
+    390.0
+   ],
+   "prompt_frame": 1400,
+   "n_frames_extracted": 240,
+   "video": {
+    "init_state_s": 6.211,
+    "n_frames_loaded": 240,
+    "offload_video_to_cpu": false,
+    "vram_after_init_mb": 1088.8,
+    "prompt_s": 0.2721,
+    "n_prop": 120,
+    "prop_s": 2.985,
+    "prop_fps": 40.2,
+    "prop_fwd_ms_mean": 24.98,
+    "prop_fwd_ms_median": 23.59,
+    "prop_fwd_ms_min": 21.44,
+    "prop_fwd_ms_max": 70.99,
+    "vram_peak_mb": 1093.2
+   }
+  }
+ ]
+}

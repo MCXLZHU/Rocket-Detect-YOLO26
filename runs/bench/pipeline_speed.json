@@ -1,0 +1,563 @@
+[
+ {
+  "tag": "bsmoke",
+  "when": "2026-09-21 09:32:21",
+  "video": "1-朱雀3号瑶二，再入回收全过程，这次是真的稳啊！纯净的像cg。-480P 标清-AVC.mp4",
+  "W": 852,
+  "H": 480,
+  "fps_video": 30.0,
+  "n_frame": 2203,
+  "sam_model": "tiny",
+  "sam_imgsz": 512,
+  "sam_chunk": 200,
+  "gpu": {
+   "name": null,
+   "vram_total_mb": 8188.0,
+   "sm_max_mhz": 3105.0,
+   "power_limit_w": 64.53,
+   "power_default_w": 55.0,
+   "power_max_w": 140.0,
+   "power_cap_active": false,
+   "thermal_slowdown_active": true
+  },
+  "stages": {
+   "decode": {
+    "wall_s": 2.23,
+    "n_frames": 2203,
+    "ms_per_frame": 1.01,
+    "fps": 987.44,
+    "exit_code": 0,
+    "gpu": {},
+    "label": "decode"
+   },
+   "stabilize": {
+    "wall_s": 0.23,
+    "n_frames": 2203,
+    "ms_per_frame": 0.106,
+    "fps": 9461.2,
+    "exit_code": 0,
+    "gpu": {},
+    "note": "稳定输出 1875 帧",
+    "label": "stabilize"
+   }
+  },
+  "e2e_stages": [
+   "decode",
+   "stabilize"
+  ],
+  "e2e_wall_s": 2.46,
+  "e2e_fps": 895.53,
+  "e2e_ms_per_frame": 1.12
+ },
+ {
+  "tag": "bench512",
+  "when": "2026-09-21 09:37:36",
+  "video": "1-朱雀3号瑶二，再入回收全过程，这次是真的稳啊！纯净的像cg。-480P 标清-AVC.mp4",
+  "W": 852,
+  "H": 480,
+  "fps_video": 30.0,
+  "n_frame": 2203,
+  "sam_model": "tiny",
+  "sam_imgsz": 512,
+  "sam_chunk": 200,
+  "gpu": {
+   "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+   "vram_total_mb": 8188.0,
+   "sm_max_mhz": 3105.0,
+   "power_limit_w": 68.49,
+   "power_default_w": 55.0,
+   "power_max_w": 140.0,
+   "power_cap_active": true,
+   "thermal_slowdown_active": true
+  },
+  "stages": {
+   "decode": {
+    "wall_s": 2.27,
+    "n_frames": 2203,
+    "ms_per_frame": 1.03,
+    "fps": 971.54,
+    "exit_code": 0,
+    "gpu": {},
+    "label": "decode"
+   },
+   "stabilize": {
+    "wall_s": 0.23,
+    "n_frames": 2203,
+    "ms_per_frame": 0.105,
+    "fps": 9497.0,
+    "exit_code": 0,
+    "gpu": {},
+    "note": "稳定输出 1875 帧",
+    "label": "stabilize"
+   },
+   "detect": {
+    "wall_s": 46.42,
+    "n_frames": 2203,
+    "ms_per_frame": 21.07,
+    "fps": 47.46,
+    "exit_code": 0,
+    "gpu": {
+     "n_samples": 200,
+     "gpu_util_mean": 43.0,
+     "gpu_util_max": 54.0,
+     "gpu_util_min": 29.0,
+     "vram_mb_mean": 711.1,
+     "vram_mb_max": 821.0,
+     "vram_mb_min": 551.0,
+     "power_w_mean": 29.6,
+     "power_w_max": 41.9,
+     "power_w_min": 19.1,
+     "sm_mhz_mean": 2555.8,
+     "sm_mhz_max": 2565.0,
+     "sm_mhz_min": 2550.0,
+     "temp_c_mean": 58.2,
+     "temp_c_max": 61.0,
+     "temp_c_min": 55.0
+    },
+    "log_tail": [
+     "   1200/2203 帧   19.1s  (63.0 fps)",
+     "   1600/2203 帧   24.3s  (65.8 fps)",
+     "   2000/2203 帧   29.6s  (67.7 fps)",
+     "",
+     "完成: 2203 帧, 32.2 秒 (68.5 fps)",
+     "输出: E:\\RocketAttitudeEstimation\\runs\\diag\\dets_bench512.json"
+    ],
+    "label": "detect"
+   },
+   "seg": {
+    "wall_s": 172.73,
+    "n_frames": 2203,
+    "ms_per_frame": 78.41,
+    "fps": 12.75,
+    "exit_code": 0,
+    "gpu": {
+     "n_samples": 594,
+     "gpu_util_mean": 45.4,
+     "gpu_util_max": 78.0,
+     "gpu_util_min": 24.0,
+     "vram_mb_mean": 946.9,
+     "vram_mb_max": 1073.0,
+     "vram_mb_min": 483.0,
+     "power_w_mean": 31.4,
+     "power_w_max": 66.8,
+     "power_w_min": 19.2,
+     "sm_mhz_mean": 2550.0,
+     "sm_mhz_max": 2550.0,
+     "sm_mhz_min": 2550.0,
+     "temp_c_mean": 59.4,
+     "temp_c_max": 64.0,
+     "temp_c_min": 57.0
+    },
+    "log_tail": [
+     "    完成 200 帧, 可信 83, 重锚定 0  [RAM 2.28GB  VRAM 271MB]",
+     "[块 2200-2203) 3 帧, 有框 0  [RAM 2.28GB  VRAM 271MB]",
+     "    完成 0 帧, 可信 0, 重锚定 0  [RAM 2.28GB  VRAM 271MB]",
+     "[完成] 1954 帧, 167.9s (11.6 fps)",
+     "[写入] E:\\RocketAttitudeEstimation\\runs\\seg\\bounds_bench512.npz  shape=(2203, 480)",
+     "[写入] E:\\RocketAttitudeEstimation\\runs\\seg\\mask_stats_bench512.csv / seg_meta_bench512.json"
+    ],
+    "label": "seg"
+   },
+   "angle_mask": {
+    "wall_s": 5.31,
+    "n_frames": 2203,
+    "ms_per_frame": 2.41,
+    "fps": 414.67,
+    "exit_code": 0,
+    "gpu": {
+     "n_samples": 23,
+     "gpu_util_mean": 30.0,
+     "gpu_util_max": 30.0,
+     "gpu_util_min": 30.0,
+     "vram_mb_mean": 483.0,
+     "vram_mb_max": 483.0,
+     "vram_mb_min": 483.0,
+     "power_w_mean": 21.1,
+     "power_w_max": 23.9,
+     "power_w_min": 19.6,
+     "sm_mhz_mean": 2550.0,
+     "sm_mhz_max": 2550.0,
+     "sm_mhz_min": 2550.0,
+     "temp_c_mean": 58.0,
+     "temp_c_max": 58.0,
+     "temp_c_min": 58.0
+    },
+    "log_tail": [
+     "[完成] 有效 1759/2203 帧  (无掩码 366, 拟合失败 78)",
+     "       静止参考角 phi_ref(45-66s) = 0.424°",
+     "[写入] E:\\RocketAttitudeEstimation\\runs\\angle_mask\\angles_bench512.csv / angles_bench512.json"
+    ],
+    "label": "angle_mask"
+   },
+   "viz": {
+    "wall_s": 20.89,
+    "n_frames": 2203,
+    "ms_per_frame": 9.48,
+    "fps": 105.44,
+    "exit_code": 0,
+    "gpu": {
+     "n_samples": 88,
+     "gpu_util_mean": 30.1,
+     "gpu_util_max": 31.0,
+     "gpu_util_min": 30.0,
+     "vram_mb_mean": 482.0,
+     "vram_mb_max": 483.0,
+     "vram_mb_min": 479.0,
+     "power_w_mean": 20.5,
+     "power_w_max": 23.3,
+     "power_w_min": 19.4,
+     "sm_mhz_mean": 2550.0,
+     "sm_mhz_max": 2550.0,
+     "sm_mhz_min": 2550.0,
+     "temp_c_mean": 57.0,
+     "temp_c_max": 57.0,
+     "temp_c_min": 57.0
+    },
+    "log_tail": [
+     "  400 帧 / 3s ...",
+     "  800 帧 / 7s ...",
+     "  1200 帧 / 11s ...",
+     "  1600 帧 / 15s ...",
+     "  2000 帧 / 18s ...",
+     "[写入] E:\\RocketAttitudeEstimation\\runs\\bench\\overlay_bench512.mp4  (21.8 MB, 19.8s)"
+    ],
+    "label": "viz"
+   }
+  },
+  "e2e_stages": [
+   "decode",
+   "stabilize",
+   "detect",
+   "seg",
+   "angle_mask"
+  ],
+  "e2e_wall_s": 226.96,
+  "e2e_fps": 9.71,
+  "e2e_ms_per_frame": 103.02
+ },
+ {
+  "tag": "bench1024",
+  "when": "2026-09-21 09:39:41",
+  "video": "1-朱雀3号瑶二，再入回收全过程，这次是真的稳啊！纯净的像cg。-480P 标清-AVC.mp4",
+  "W": 852,
+  "H": 480,
+  "fps_video": 30.0,
+  "n_frame": 2203,
+  "sam_model": "tiny",
+  "sam_imgsz": 1024,
+  "sam_chunk": 200,
+  "gpu": {
+   "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+   "vram_total_mb": 8188.0,
+   "sm_max_mhz": 3105.0,
+   "power_limit_w": 78.69,
+   "power_default_w": 55.0,
+   "power_max_w": 140.0,
+   "power_cap_active": false,
+   "thermal_slowdown_active": false
+  },
+  "stages": {
+   "seg": {
+    "wall_s": 3.29,
+    "n_frames": 2203,
+    "ms_per_frame": 1.49,
+    "fps": 669.19,
+    "exit_code": 1,
+    "gpu": {
+     "n_samples": 14,
+     "gpu_util_mean": 25.6,
+     "gpu_util_max": 30.0,
+     "gpu_util_min": 0.0,
+     "vram_mb_mean": 481.0,
+     "vram_mb_max": 498.0,
+     "vram_mb_min": 475.0,
+     "power_w_mean": 21.3,
+     "power_w_max": 22.6,
+     "power_w_min": 20.5,
+     "sm_mhz_mean": 2565.0,
+     "sm_mhz_max": 2565.0,
+     "sm_mhz_min": 2565.0,
+     "temp_c_mean": 57.0,
+     "temp_c_max": 57.0,
+     "temp_c_min": 57.0
+    },
+    "log_tail": [
+     "    with self.open(mode='r', encoding=encoding, errors=errors) as f:",
+     "         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+     "  File \"E:\\Anaconda\\envs\\yolo26\\Lib\\pathlib.py\", line 1013, in open",
+     "    return io.open(self, mode, buffering, encoding, errors, newline)",
+     "           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+     "FileNotFoundError: [Errno 2] No such file or directory: 'E:\\\\RocketAttitudeEstimation\\\\runs\\\\diag\\\\dets_bench1024.json'"
+    ],
+    "label": "seg"
+   },
+   "angle_mask": {
+    "wall_s": 0.6,
+    "n_frames": 2203,
+    "ms_per_frame": 0.27,
+    "fps": 3694.96,
+    "exit_code": 1,
+    "gpu": {
+     "n_samples": 3,
+     "gpu_util_mean": 0.0,
+     "gpu_util_max": 0.0,
+     "gpu_util_min": 0.0,
+     "vram_mb_mean": 498.0,
+     "vram_mb_max": 498.0,
+     "vram_mb_min": 498.0,
+     "power_w_mean": 20.3,
+     "power_w_max": 20.4,
+     "power_w_min": 20.3,
+     "sm_mhz_mean": 2565.0,
+     "sm_mhz_max": 2565.0,
+     "sm_mhz_min": 2565.0,
+     "temp_c_mean": 57.0,
+     "temp_c_max": 57.0,
+     "temp_c_min": 57.0
+    },
+    "log_tail": [
+     "    with self.open(mode='r', encoding=encoding, errors=errors) as f:",
+     "         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+     "  File \"E:\\Anaconda\\envs\\yolo26\\Lib\\pathlib.py\", line 1013, in open",
+     "    return io.open(self, mode, buffering, encoding, errors, newline)",
+     "           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+     "FileNotFoundError: [Errno 2] No such file or directory: 'E:\\\\RocketAttitudeEstimation\\\\runs\\\\diag\\\\dets_bench1024.json'"
+    ],
+    "label": "angle_mask"
+   }
+  },
+  "e2e_stages": [
+   "seg",
+   "angle_mask"
+  ],
+  "e2e_wall_s": 3.89,
+  "e2e_fps": 566.32,
+  "e2e_ms_per_frame": 1.77
+ },
+ {
+  "tag": "bench512b",
+  "when": "2026-09-21 09:42:42",
+  "video": "1-朱雀3号瑶二，再入回收全过程，这次是真的稳啊！纯净的像cg。-480P 标清-AVC.mp4",
+  "W": 852,
+  "H": 480,
+  "fps_video": 30.0,
+  "n_frame": 2203,
+  "sam_model": "tiny",
+  "sam_imgsz": 512,
+  "sam_chunk": 200,
+  "gpu": {
+   "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+   "vram_total_mb": 8188.0,
+   "sm_max_mhz": 3105.0,
+   "power_limit_w": 74.33,
+   "power_default_w": 55.0,
+   "power_max_w": 140.0,
+   "power_cap_active": false,
+   "thermal_slowdown_active": false
+  },
+  "stages": {
+   "seg": {
+    "wall_s": 110.23,
+    "n_frames": 2203,
+    "ms_per_frame": 50.04,
+    "fps": 19.99,
+    "exit_code": 0,
+    "gpu": {
+     "n_samples": 423,
+     "gpu_util_mean": 42.5,
+     "gpu_util_max": 76.0,
+     "gpu_util_min": 0.0,
+     "vram_mb_mean": 977.7,
+     "vram_mb_max": 1076.0,
+     "vram_mb_min": 479.0,
+     "power_w_mean": 36.3,
+     "power_w_max": 56.9,
+     "power_w_min": 18.8,
+     "sm_mhz_mean": 2553.0,
+     "sm_mhz_max": 2565.0,
+     "sm_mhz_min": 2535.0,
+     "temp_c_mean": 61.1,
+     "temp_c_max": 65.0,
+     "temp_c_min": 55.0
+    },
+    "log_tail": [
+     "    完成 200 帧, 可信 83, 重锚定 0  [RAM 2.32GB  VRAM 271MB]",
+     "[块 2200-2203) 3 帧, 有框 0  [RAM 2.32GB  VRAM 271MB]",
+     "    完成 0 帧, 可信 0, 重锚定 0  [RAM 2.32GB  VRAM 271MB]",
+     "[完成] 1954 帧, 106.5s (18.3 fps)",
+     "[写入] E:\\RocketAttitudeEstimation\\runs\\seg\\bounds_bench512b.npz  shape=(2203, 480)",
+     "[写入] E:\\RocketAttitudeEstimation\\runs\\seg\\mask_stats_bench512b.csv / seg_meta_bench512b.json"
+    ],
+    "label": "seg"
+   },
+   "angle_mask": {
+    "wall_s": 5.33,
+    "n_frames": 2203,
+    "ms_per_frame": 2.42,
+    "fps": 413.6,
+    "exit_code": 0,
+    "gpu": {
+     "n_samples": 22,
+     "gpu_util_mean": 29.9,
+     "gpu_util_max": 30.0,
+     "gpu_util_min": 29.0,
+     "vram_mb_mean": 480.6,
+     "vram_mb_max": 488.0,
+     "vram_mb_min": 479.0,
+     "power_w_mean": 21.1,
+     "power_w_max": 21.3,
+     "power_w_min": 21.0,
+     "sm_mhz_mean": 2550.0,
+     "sm_mhz_max": 2550.0,
+     "sm_mhz_min": 2550.0,
+     "temp_c_mean": 58.3,
+     "temp_c_max": 59.0,
+     "temp_c_min": 58.0
+    },
+    "log_tail": [
+     "[完成] 有效 1759/2203 帧  (无掩码 366, 拟合失败 78)",
+     "       静止参考角 phi_ref(45-66s) = 0.424°",
+     "[写入] E:\\RocketAttitudeEstimation\\runs\\angle_mask\\angles_bench512b.csv / angles_bench512b.json"
+    ],
+    "label": "angle_mask"
+   },
+   "viz": {
+    "wall_s": 23.72,
+    "n_frames": 2203,
+    "ms_per_frame": 10.77,
+    "fps": 92.89,
+    "exit_code": 0,
+    "gpu": {
+     "n_samples": 96,
+     "gpu_util_mean": 23.6,
+     "gpu_util_max": 33.0,
+     "gpu_util_min": 0.0,
+     "vram_mb_mean": 487.2,
+     "vram_mb_max": 512.0,
+     "vram_mb_min": 471.0,
+     "power_w_mean": 20.8,
+     "power_w_max": 21.7,
+     "power_w_min": 20.2,
+     "sm_mhz_mean": 2563.9,
+     "sm_mhz_max": 2565.0,
+     "sm_mhz_min": 2550.0,
+     "temp_c_mean": 57.3,
+     "temp_c_max": 58.0,
+     "temp_c_min": 57.0
+    },
+    "log_tail": [
+     "  400 帧 / 3s ...",
+     "  800 帧 / 7s ...",
+     "  1200 帧 / 11s ...",
+     "  1600 帧 / 15s ...",
+     "  2000 帧 / 20s ...",
+     "[写入] E:\\RocketAttitudeEstimation\\runs\\bench\\overlay_bench512b.mp4  (21.8 MB, 22.5s)"
+    ],
+    "label": "viz"
+   }
+  },
+  "e2e_stages": [
+   "seg",
+   "angle_mask"
+  ],
+  "e2e_wall_s": 115.56,
+  "e2e_fps": 19.06,
+  "e2e_ms_per_frame": 52.46
+ },
+ {
+  "tag": "bench1024b",
+  "when": "2026-09-21 09:48:10",
+  "video": "1-朱雀3号瑶二，再入回收全过程，这次是真的稳啊！纯净的像cg。-480P 标清-AVC.mp4",
+  "W": 852,
+  "H": 480,
+  "fps_video": 30.0,
+  "n_frame": 2203,
+  "sam_model": "tiny",
+  "sam_imgsz": 1024,
+  "sam_chunk": 200,
+  "gpu": {
+   "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+   "vram_total_mb": 8188.0,
+   "sm_max_mhz": 3105.0,
+   "power_limit_w": 80.0,
+   "power_default_w": 55.0,
+   "power_max_w": 140.0,
+   "power_cap_active": false,
+   "thermal_slowdown_active": false
+  },
+  "stages": {
+   "seg": {
+    "wall_s": 315.14,
+    "n_frames": 2203,
+    "ms_per_frame": 143.05,
+    "fps": 6.99,
+    "exit_code": 0,
+    "gpu": {
+     "n_samples": 1378,
+     "gpu_util_mean": 57.4,
+     "gpu_util_max": 98.0,
+     "gpu_util_min": 0.0,
+     "vram_mb_mean": 1217.6,
+     "vram_mb_max": 1479.0,
+     "vram_mb_min": 511.0,
+     "power_w_mean": 54.0,
+     "power_w_max": 88.0,
+     "power_w_min": 18.9,
+     "sm_mhz_mean": 2517.6,
+     "sm_mhz_max": 2565.0,
+     "sm_mhz_min": 2190.0,
+     "temp_c_mean": 66.8,
+     "temp_c_max": 73.0,
+     "temp_c_min": 56.0
+    },
+    "log_tail": [
+     "    完成 200 帧, 可信 83, 重锚定 0  [RAM 1.32GB  VRAM 295MB]",
+     "[块 2200-2203) 3 帧, 有框 0  [RAM 1.32GB  VRAM 295MB]",
+     "    完成 0 帧, 可信 0, 重锚定 0  [RAM 1.32GB  VRAM 295MB]",
+     "[完成] 1936 帧, 311.3s (6.2 fps)",
+     "[写入] E:\\RocketAttitudeEstimation\\runs\\seg\\bounds_bench1024b.npz  shape=(2203, 480)",
+     "[写入] E:\\RocketAttitudeEstimation\\runs\\seg\\mask_stats_bench1024b.csv / seg_meta_bench1024b.json"
+    ],
+    "label": "seg"
+   },
+   "angle_mask": {
+    "wall_s": 4.58,
+    "n_frames": 2203,
+    "ms_per_frame": 2.08,
+    "fps": 481.42,
+    "exit_code": 0,
+    "gpu": {
+     "n_samples": 22,
+     "gpu_util_mean": 0.0,
+     "gpu_util_max": 0.0,
+     "gpu_util_min": 0.0,
+     "vram_mb_mean": 511.0,
+     "vram_mb_max": 511.0,
+     "vram_mb_min": 511.0,
+     "power_w_mean": 20.9,
+     "power_w_max": 21.1,
+     "power_w_min": 20.8,
+     "sm_mhz_mean": 2550.0,
+     "sm_mhz_max": 2550.0,
+     "sm_mhz_min": 2550.0,
+     "temp_c_mean": 61.2,
+     "temp_c_max": 62.0,
+     "temp_c_min": 61.0
+    },
+    "log_tail": [
+     "[完成] 有效 1741/2203 帧  (无掩码 384, 拟合失败 78)",
+     "       静止参考角 phi_ref(45-66s) = 0.460°",
+     "[写入] E:\\RocketAttitudeEstimation\\runs\\angle_mask\\angles_bench1024b.csv / angles_bench1024b.json"
+    ],
+    "label": "angle_mask"
+   }
+  },
+  "e2e_stages": [
+   "seg",
+   "angle_mask"
+  ],
+  "e2e_wall_s": 319.72,
+  "e2e_fps": 6.89,
+  "e2e_ms_per_frame": 145.13
+ }
+]

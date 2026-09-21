@@ -73,6 +73,17 @@ runs/angle_mask/*_smoke.*
 runs/seg/*_dbg.*
 runs/angle_mask/*_dbg.*
 
+# ---------- 8c. 测速基准的临时产物 ----------
+# 用 `--tag bench*` 跑基准时写的中间产物, 与正式产物同名只是加了 bench 标签;
+# 速度报告本身(runs/bench/pipeline_speed.json、speed_breakdown.png)照常入库。
+runs/diag/dets_bench*.json
+runs/seg/bounds_bench*.npz
+runs/seg/mask_stats_bench*.csv
+runs/seg/seg_meta_bench*.json
+runs/angle_mask/angles_bench*.*
+runs/sam/*_bench*.png
+runs/sam/*_bench*.txt
+
 # ---------- 9. IDE / 编辑器 ----------
 .idea/
 .vscode/
