@@ -1,20 +1,22 @@
 # RocketAttitudeEstimation — 项目长期备忘（索引 + 不可推翻的结论）
 
 ## 一句话
-YOLO26s 检测可回收火箭降落视频 → 检测稳定化 → 筒身倾角 → 相对姿态。
+YOLO26s 检测可回收火箭降落视频 → 检测稳定化 → **SAM 2.1 掩码测角** → 相对姿态。
 **四步链路已全部打通并验证**。入口：`README.md`（总览）、`pipeline.py`（一键入口）。
+⚠️ 2026-10-08 起**原方案（ROI 梯度边缘）已下线并删除**，项目只有 SAM 一条主线；
+代码/产物归档在 `legacy/`，恢复点 `git tag legacy-gradient-route`。
 
 ## 文档索引（细节在文档里，此处不重复）
 | 文档 | 内容 |
 |---|---|
 | `TRAINING_REPORT.md` | 训练全过程总结（项目统一入口） |
 | `DETECTION_STABILIZATION.md` | 第 1-2 步：检测稳定化 |
-| `ANGLE_ESTIMATION.md` | 第 3 步：ROI 边缘检测 + 倾角 |
-| `SAM2_MASK_ANGLE.md` | 第 3 步（**替代路线**）：SAM 2.1 掩码方案实现/实测/对拍 |
-| `SAM2_PROPOSAL.md` | SAM 2.1 方案细化与对比（导师建议的细化） |
-| `ATTITUDE_ESTIMATION.md` | 第 4 步：姿态反算 |
+| `SAM2_MASK_ANGLE.md` | 第 3 步（**当前唯一实现**）：SAM 2.1 掩码方案实现/实测 |
+| `SAM2_PROPOSAL.md` | 第 3 步：方案细化与路线对比（选型阶段文档） |
+| `ATTITUDE_ESTIMATION.md` | 第 4 步：姿态反算（输入已切到掩码路线） |
 | `SPEED_BENCH.md` | 本机处理速度实测：分阶段耗时/瓶颈定位/优化建议/实时性判定 |
 | `SAM2_CODE_TOUR.md` | SAM 2.1 代码阅读路线（分 5 层 + 必读函数索引） |
+| `legacy/README.md` | **已下线的原方案**：下线理由 + 对比数据 + 取回代码的方法 |
 | `README.md` | 流水线用法 + 已知限制 |
 | `README_TRAIN.md` | 训练环境与操作手册 |
 
@@ -105,19 +107,29 @@ YOLO26s 检测可回收火箭降落视频 → 检测稳定化 → 筒身倾角 �
     `bench_report.py`（出图/表）。踩坑：`nvidia-smi` 文本用定长窗口会把 `Active` 截成 `Acti`
     误判"未限功耗"（按行解析）；对比不同分辨率必须带 `--det-source`，否则 `FileNotFoundError`
     会让整段 3s "跑完"、被误读成"更快"。
-21. **交付物分两套，别混**：`runs/sam/`（`sam_angle_viz.py`）= **成果件，只看 SAM 路线**，
-    无原方案元素（无绿色梯度边线、无 Δφ 面板），汇报用；`runs/seg/compare_*`（`compare_video.py`）
-    = **对照件，与原方案对拍**，调参用。成果件曲线带下段是 **dφ/dt**，且必须用**窗内中心差分**
-    （±5 帧），直接画 CSV 里的 `dphi_dt`（相邻帧差分×fps）整片都是噪声。
+21. **成果件的绘图铁律**：`runs/sam/`（`sam_angle_viz.py`）是**唯一交付可视化**（原对拍件
+    `compare_video.py` 已删）。曲线带下段是 **dφ/dt**，必须用**窗内中心差分**（±5 帧）——
+    直接画 CSV 里的 `dphi_dt`（相邻帧差分×fps）整片都是噪声。图区内**没有安全位置放图例**
+    （早期 φ 高到 +15°），说明文字一律放图外页脚。
+22. **代码分层（2026-10-08 重构后）**：`angle_core.py` = 测角共享内核（`AngleResult` 兼 CSV
+    数据契约 / `robust_line` / `SmoothConfig`+`smooth_and_reference` / `COLS`+`save(out_dir=)`）；
+    `viz_common.py` = 字体链/CSV 读取/配色。**成果件不依赖任何对拍件**。
+    重构铁律：动共享内核前先"逐字节哈希"验证（本次 4 个产物 + verifytmp 重跑全一致）。
+23. **pipeline 有两个标签，别混**：`--tag` 是**检测**产物标签（跟 conf/iou 走）；
+    `--sam-tag` 是**掩码路线**产物标签（默认 `s<imgsz>`，如 s512）。两者解耦后流水线能直接
+    落到既有的 `bounds_s512.npz` / `angles_s512.csv` 上。第 4 步用 `--src-tag` 指定读哪套测角结果。
 
 ## 一键流水线
-`python pipeline.py` → detect(GPU 36s) → stabilize(3s) → angle(33s) → attitude(66s)
+`python pipeline.py` → detect(GPU 46s) → stabilize(0.2s) → **seg(GPU 173s 含抽帧 / 110s 热)** →
+angle_mask(5s) → attitude(66s)。
 **阶段可缓存**（产物存在即跳过，`--force` 强制重跑）；`--summary/--list/--only/--from/--to`。
-SAM 路线是**可选**阶段：`pipeline.py --sam` → 额外跑 seg(≈120s GPU) → angle_mask(CPU)。
+**没有 `--sam` 开关了**（SAM 就是唯一主线）；`seg`/`angle_mask` 是必跑阶段。
 日志 `runs/pipeline_log.txt`。评测数据源 `runs/diag/dets_iou70.json`（一次推理存盘，后续分析免 GPU）。
 
 ## 版本控制（2026-09-15 git init）
 - 仓库在根目录，`main` 分支；`core.quotepath=false`。
+- **`git tag legacy-gradient-route`** = 原方案下线前的完整恢复点（2026-10-08）。
+  下线提交：`1ff17d4`（42 文件变更、净删 4981 行）；前置抽内核提交 `9db261f`。
 - 远端 `origin` = `https://github.com/MCXLZHU/Rocket-Detect-YOLO26.git`。
 - **入库 122 文件 / 31.68 MB**。排除：数据集（18 GB）、`.cache/`（2.2 GB）、
   除 `runs/rocket_yolo26s/weights/best.pt` 外的所有 `*.pt`、`runs/**/*.mp4`、
@@ -154,12 +166,11 @@ SAM 路线是**可选**阶段：`pipeline.py --sam` → 额外跑 seg(≈120s GP
   **那是控制台编码假象，不代表仓库内容坏了**，核验读源文件或用 `git cat-file commit <sha>`。
 
 - ⚠️ **`cv2.putText` 只支持 ASCII**：画中文会变成乱码方块**并与相邻文字重叠**（本项目的
-  `compare_video.py` 踩过）。中文一律走 PIL（微软雅黑 `C:\Windows\Fonts\msyh.ttc`）。
-- ⚠️ **做对比图先问"差异量级 vs 轴量级"**：两条路线只差 0.7~0.8°，画在同一根 ±8° 轴上
-  完全看不出差异 —— 必须给差异量单独一个刻度（见 `compare_video.py` 的 Δφ 下段）。
-- **可视化入口**：`scripts/compare_video.py --tag s512 --vs2 s1024 --stills 6`
-  → `runs/seg/compare_overlay_*.mp4` / `compare_timeline_*.png` / `compare_stills_*.png`
-- **成果件入口**：`scripts/sam_angle_viz.py --tag s512 --stills 6`
+  对拍可视化踩过）。中文一律走 PIL（微软雅黑 `C:\Windows\Fonts\msyh.ttc`）。
+- ⚠️ **做对比图先问"差异量级 vs 轴量级"**：两条路线只差 0.7~0.8°，画在同一根轴上
+  完全看不出差异 —— 必须给差异量单独一个刻度。（当时用了独立 Δφ 面板；对拍件已随原方案删除，
+  这条经验对所有"量级差一个数量级"的对比图仍然成立。）
+- **可视化入口（唯一）**：`scripts/sam_angle_viz.py --tag s512 --stills 6`
   → `runs/sam/overlay_s512.mp4` / `timeline_s512.png` / `stills_s512.png` / `summary_s512.txt`
 - **测速入口**：`scripts/bench_pipeline.py --tag bench512` + `scripts/bench_report.py`
   → `runs/bench/pipeline_speed.json` / `speed_breakdown.png` / `speed_table.txt`。
