@@ -44,8 +44,12 @@ for _s in ("tmp", "torch", "mpl", "yolo"):
 os.environ["MPLCONFIGDIR"] = str(CACHE / "mpl")
 sys.path.insert(0, str(PROJECT / "scripts"))
 
-import rocket_angle as RA  # noqa: E402
-from rocket_angle import AngleConfig, AngleResult, _robust_line  # noqa: E402
+# 共享内核(结果容器 / IRLS 拟合 / 时序平滑 / 落盘)。原先从 rocket_angle(原方案的
+# 梯度边缘模块)里借, 现在原方案下线, 这条依赖已迁到中立的 angle_core。
+from angle_core import (  # noqa: E402
+    AngleResult, SmoothConfig, robust_line, save as save_angles,
+    smooth_and_reference,
+)
 
 SEG = PROJECT / "runs" / "seg"
 DETS = PROJECT / "runs" / "diag"
@@ -102,15 +106,15 @@ def estimate(xl: np.ndarray, xr: np.ndarray, cfg: MaskAngleConfig):
     ys, xl2, xr2, w = br
     ysf = ys.astype(float)
     xc = 0.5 * (xl2 + xr2)
-    a, b, rms, m = _robust_line(ysf, xc, 5, 2.5)
+    a, b, rms, m = robust_line(ysf, xc, 5, 2.5)
     if not np.isfinite(a) or m.sum() < cfg.min_rows:
         return None
-    a, b, rms, m2 = _robust_line(ysf[m], xc[m], 5, 2.5)
+    a, b, rms, m2 = robust_line(ysf[m], xc[m], 5, 2.5)
     idx = np.where(m)[0][m2]
     if idx.size < cfg.min_rows:
         return None
-    al, bl, _, _ = _robust_line(ysf[idx], xl2[idx], 5, 2.5)
-    ar, br_, _, _ = _robust_line(ysf[idx], xr2[idx], 5, 2.5)
+    al, bl, _, _ = robust_line(ysf[idx], xl2[idx], 5, 2.5)
+    ar, br_, _, _ = robust_line(ysf[idx], xr2[idx], 5, 2.5)
     par = abs(al - ar) if (np.isfinite(al) and np.isfinite(ar)) else float("nan")
     yt, yb = float(ysf[idx].min()), float(ysf[idx].max())
     return dict(phi=float(np.degrees(np.arctan(-a))), w_body=float(np.median(w[idx])),
@@ -169,9 +173,9 @@ def run(tag: str, dets_tag: str = "iou70",
         r.conf = float(np.clip(0.4 * min(1.0, r.n_bands / 60.0)
                                + 0.3 * r.inlier_ratio
                                + 0.3 * (1.0 - min(1.0, r.rms_px / 1.5)), 0, 1))
-    acfg = AngleConfig(ref_range=cfg.ref_range, smooth_median=cfg.smooth_median,
-                       smooth_alpha=cfg.smooth_alpha)
-    ref = RA.smooth_and_reference(res, fps, acfg)
+    scfg = SmoothConfig(ref_range=cfg.ref_range, smooth_median=cfg.smooth_median,
+                        smooth_alpha=cfg.smooth_alpha)
+    ref = smooth_and_reference(res, fps, scfg)
     info = dict(W=W, H=H, fps=fps, video=vm["video"], n_frame=n, ref=ref,
                 source=f"sam2_mask:{tag}", n_no_mask=n_no, n_fit_failed=n_fit)
     # 带上 seg 阶段的运行配置(模型规格/输入边长/分块), 方便 summary 里一眼看清用的是哪套
@@ -280,11 +284,7 @@ def main() -> None:
           f"/{info['n_frame']} 帧  (无掩码 {info['n_no_mask']}, "
           f"拟合失败 {info['n_fit_failed']})", flush=True)
     print(f"       静止参考角 phi_ref(45-66s) = {info['ref']:.3f}°", flush=True)
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    old = RA.OUT_DIR
-    RA.OUT_DIR = OUT_DIR
-    RA.save(res, info, a.out_tag or a.tag)
-    RA.OUT_DIR = old
+    save_angles(res, info, a.out_tag or a.tag, out_dir=OUT_DIR)
     if a.compare:
         txt = compare(res, a.dets_tag, a.vs)
         print(txt, flush=True)

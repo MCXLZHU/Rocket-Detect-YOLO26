@@ -46,9 +46,10 @@ sys.path.insert(0, str(PROJECT / "scripts"))
 import cv2  # noqa: E402
 from PIL import Image, ImageDraw  # noqa: E402
 
-# 复用已在用的工具(字体回退链 / CSV 读取 / 数值解析), 不再复制一份;
-# 缓存重定向与 sys.path 也由它一并完成。
-from compare_video import (  # noqa: E402
+# 公共可视化件(字体回退链 / CSV 读取 / 数值解析 / 配色)。
+# ★ 以前是 `from compare_video import ...` —— 成果件依赖对拍件是反向依赖,
+#   对拍件下线后会直接把这里打断, 故已抽到 viz_common。
+from viz_common import (  # noqa: E402
     C_AXIS, C_BODY, C_BOX, C_SIL, fnum, load_font, read_csv_map,
 )
 from rocket_track import TrackerConfig, track_frames  # noqa: E402
