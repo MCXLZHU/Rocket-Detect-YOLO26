@@ -12,14 +12,17 @@ ROOT = Path(r"E:\RocketAttitudeEstimation")
 FILES = [
     "scripts/rocket_seg.py",
     "scripts/rocket_mask_angle.py",
+    "scripts/angle_core.py",
+    "scripts/viz_common.py",
+    "scripts/sam_angle_viz.py",
     "scripts/validate_mask_angle.py",
     "scripts/bench_sam2.py",
-    "scripts/compare_video.py",
+    "scripts/bench_pipeline.py",
     "scripts/_seg_diag.py",
     "scripts/_seg_probe.py",
-    "scripts/_seg_vs_grad.py",
-    "scripts/rocket_angle.py",
     "scripts/rocket_track.py",
+    "scripts/validate_stabilize.py",
+    "scripts/diag_video_detections.py",
     "pipeline.py",
 ]
 SAM2 = [

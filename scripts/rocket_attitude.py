@@ -21,12 +21,18 @@
 因此本模块的主输出 = **箭体与图像竖直/图像水平边的夹角**, 3D 姿态作为可选、
 显式参数化并附灵敏度表。
 
+=============================== 输入 ===============================
+**SAM 2.1 掩码路线**的测角结果 `runs/angle_mask/angles_<src-tag>.json`
+(默认 s512)。字段与旧的原方案产物同构, 所以这里只换路径, 几何换算完全复用。
+原来的输入 `runs/angle/angles.json`(ROI 梯度边缘)已随原方案一起下线。
+
 =============================== 输出 ===============================
   runs/attitude/attitude.csv / .json   逐帧: 各种夹角 + 相机运动 + 可选 β
   runs/attitude/attitude_timeline.png  时间线
   runs/attitude/camera_check.txt       相机静止性验证报告(含注入运动校验)
 用法:
     python scripts/rocket_attitude.py
+    python scripts/rocket_attitude.py --src-tag s1024     # 换另一套分割配置
     python scripts/rocket_attitude.py --l-over-d 17      # 给出长径比才算 β
 """
 
@@ -55,7 +61,7 @@ os.environ["MPLCONFIGDIR"] = str(CACHE / "mpl")
 import cv2  # noqa: E402
 
 DIAG = PROJECT / "runs" / "diag"
-ANG = PROJECT / "runs" / "angle"
+ANGM = PROJECT / "runs" / "angle_mask"    # 掩码路线测角结果(本步的输入)
 OUT = PROJECT / "runs" / "attitude"
 
 
@@ -247,7 +253,15 @@ def open_cap(path: Path):
 
 
 def run(cfg: AttitudeConfig | None = None, dets_tag: str = "iou70",
-        verbose: bool = True):
+        verbose: bool = True, src_tag: str = "s512"):
+    """src_tag: 第 3 步测角结果的标签。
+
+    本步的输入已从"原方案梯度边缘"(`runs/angle/angles.json`)切到
+    **SAM 2.1 掩码路线**(`runs/angle_mask/angles_<src_tag>.json`)。
+    两条路线的 JSON **字段结构完全一致**(同一套 `angle_core.AngleResult` 契约),
+    所以这里只换路径, 下游的几何换算一行都不用动 —— 相对倾角 φ_rel / 与上边缘夹角 /
+    相机静止性这些结论也就自动继承到掩码路线上。
+    """
     cfg = cfg or AttitudeConfig()
     meta = json.loads((DIAG / f"dets_{dets_tag}.json").read_text(
         encoding="utf-8"))
@@ -255,8 +269,13 @@ def run(cfg: AttitudeConfig | None = None, dets_tag: str = "iou70",
     W, H, fps = vmeta["W"], vmeta["H"], vmeta["fps"]
     vpath = PROJECT / vmeta["video"]
 
-    # --- 读第 3 步结果, 拿到 box(用于屏蔽) 与 phi ---
-    ang = json.loads((ANG / "angles.json").read_text(encoding="utf-8"))
+    # --- 读第 3 步(SAM 掩码路线)的结果: 拿 phi / w_body / conf, box 另由 tracker 复现 ---
+    src = ANGM / f"angles_{src_tag}.json"
+    if not src.exists():
+        raise FileNotFoundError(
+            f"找不到掩码路线测角结果 {src}; 先跑 "
+            f"rocket_mask_angle.py --tag {src_tag}")
+    ang = json.loads(src.read_text(encoding="utf-8"))
     ang_fr = ang["frames"]
     ref = ang["info"]["ref"]
 
@@ -341,7 +360,8 @@ def run(cfg: AttitudeConfig | None = None, dets_tag: str = "iou70",
 
     info = dict(W=W, H=H, fps=fps, ref=ref, l_over_d=cfg.l_over_d,
                 video=vmeta["video"], n_frame=len(res),
-                cam_ref_frame=ref_idx, cam_n_valid=n_valid)
+                cam_ref_frame=ref_idx, cam_n_valid=n_valid,
+                angle_src=f"angle_mask/angles_{src_tag}.json")
     return res, info, dict(inj_rot=inj_rot, inj_shift=inj_sh,
                            outs=outs, cfg=cfg, vpath=vpath)
 
@@ -385,13 +405,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--l-over-d", type=float, default=float("nan"),
                    help="火箭真实长径比; 不给就只输出角度, 不算面外角")
     p.add_argument("--tag", default="")
+    p.add_argument("--dets-tag", default="iou70")
+    p.add_argument("--src-tag", default="s512",
+                   help="第 3 步掩码路线的标签(读 angles_<src-tag>.json), 默认 s512")
     return p.parse_args()
 
 
 def main() -> None:
     a = parse_args()
     cfg = AttitudeConfig(l_over_d=a.l_over_d)
-    res, info, extra = run(cfg)
+    res, info, extra = run(cfg, dets_tag=a.dets_tag, src_tag=a.src_tag)
     save(res, info, a.tag)
 
 

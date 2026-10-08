@@ -4,10 +4,15 @@
   阶段            做什么                                    产物
   ------------    --------------------------------------    ------------------------------------------
   detect          YOLO 低阈值逐帧推理, 存盘原始检测框         runs/diag/dets_<tag>.json           (GPU)
+                  (同时是 SAM 的提示框来源)
   stabilize       时序稳定化(嵌套抑制+双阈值续轨+模式状态机)   runs/diag/stabilize_report.txt
-  angle           ROI 内边缘检测 → 倾角 φ(t)                  runs/angle/angles.csv / .json
+  seg             SAM 2.1 视频模式传播箭体掩码                runs/seg/bounds_<tag>.npz           (GPU)
+                                                             + mask_stats_<tag>.csv
+  angle_mask      掩码剪影中心线 → 倾角 φ(t)                  runs/angle_mask/angles_<tag>.csv/.json
   attitude        相对倾角 + 相机核查 (+可选伪3D β)           runs/attitude/attitude.csv / validate.txt
-  report          所有图表                                   runs/angle/angle_timeline.png 等
+
+注: 原第 3 步"ROI 内梯度边缘检测"(rocket_angle.py) 因精度不达标已下线
+    (旋转增益 0.898 vs 掩码路线 0.963), 代码与产物归档在 legacy/。
 
 设计要点:
   * **阶段可缓存**: 每阶段检查自己的产物文件, 已存在就跳过(用 --force 强制重跑)。
@@ -19,9 +24,9 @@
 用法:
     python pipeline.py                          # 全跑(已完成的阶段自动跳过)
     python pipeline.py --force                  # 全部重跑
-    python pipeline.py --only stabilize,angle   # 只跑指定阶段
-    python pipeline.py --from angle             # 从某阶段往后跑
-    python pipeline.py --to angle               # 跑到某阶段为止
+    python pipeline.py --only seg,angle_mask    # 只跑指定阶段
+    python pipeline.py --from angle_mask        # 从某阶段往后跑
+    python pipeline.py --to angle_mask          # 跑到某阶段为止
     python pipeline.py --video-out              # 另外产出带标注的视频(较慢)
     python pipeline.py --l-over-d 17            # 顺带算出参数化的面外角 β
     python pipeline.py --summary                # 只打印汇总(不跑任何阶段)
@@ -56,8 +61,7 @@ PY = sys.executable          # 与入口同一个解释器(用户用的是 conda
 S = PROJECT / "scripts"
 LOG = PROJECT / "runs" / "pipeline_log.txt"
 
-DIAG, ANG, ATT = (PROJECT / "runs" / "diag", PROJECT / "runs" / "angle",
-                  PROJECT / "runs" / "attitude")
+DIAG, ATT = PROJECT / "runs" / "diag", PROJECT / "runs" / "attitude"
 SEGOUT, ANGM = PROJECT / "runs" / "seg", PROJECT / "runs" / "angle_mask"
 
 
@@ -73,7 +77,10 @@ class Stage:
         self.needs = needs              # 前置阶段
 
 
-def _stages(dets_tag: str):
+def _stages(dets_tag: str, sam_tag: str):
+    """dets_tag: 检测产物标签(第 1-2 步);
+    sam_tag:  掩码路线产物标签(第 3 步起)。两者分开是因为 SAM 的标签里
+              要带输入边长(如 s512 / s1024), 而检测标签只跟 conf/iou 有关。"""
     def detect(a):
         cmd = [PY, str(S / "diag_video_detections.py"), "--tag", dets_tag,
                "--conf", str(a.conf), "--iou", str(a.iou)]
@@ -87,54 +94,51 @@ def _stages(dets_tag: str):
             out.append([PY, str(S / "track_video.py")])
         return out
 
-    def angle(a):
-        cmd = [PY, str(S / "rocket_angle.py")]
-        if a.video_out:
-            cmd.append("--make-video")
-        return [cmd, [PY, str(S / "angle_report.py")]]
-
     def attitude(a):
-        cmd = [PY, str(S / "validate_attitude.py")]
+        # 输入是掩码路线的测角结果, 所以要显式告诉它 --src-tag
+        cmd = [PY, str(S / "validate_attitude.py"), "--dets-tag", dets_tag,
+               "--src-tag", sam_tag]
         if a.l_over_d and math.isfinite(a.l_over_d):
             cmd += ["--l-over-d", str(a.l_over_d)]
         out = [cmd, [PY, str(S / "attitude_report.py")]]
         if math.isfinite(a.l_over_d):
             out.append([PY, str(S / "rocket_attitude.py"), "--l-over-d",
-                        str(a.l_over_d), "--tag", "ld"])
+                        str(a.l_over_d), "--tag", "ld", "--dets-tag", dets_tag,
+                        "--src-tag", sam_tag])
         return out
 
     def seg(a):
-        """SAM 2.1 视频模式分割箭体轮廓(方案 B)。需要 third_party/sam2 + 权重。"""
+        """SAM 2.1 视频模式分割箭体轮廓。需要 third_party/sam2 + 权重。"""
         cmd = [PY, str(S / "rocket_seg.py"), "--dets-tag", dets_tag,
-               "--tag", dets_tag, "--model", a.sam_model,
+               "--tag", sam_tag, "--model", a.sam_model,
                "--image-size", str(a.sam_imgsz), "--chunk", str(a.sam_chunk)]
         if a.video_out:
             cmd.append("--make-video")
         return [cmd]
 
     def angle_mask(a):
-        return [[PY, str(S / "rocket_mask_angle.py"), "--tag", dets_tag,
-                 "--dets-tag", dets_tag, "--compare"]]
+        # 不再带 --compare: 原方案已下线, 对拍对象只剩下"另一套 SAM 配置",
+        # 那个用 `--compare --vs <tag>` 单独跑即可(见 SAM2_MASK_ANGLE.md)。
+        return [[PY, str(S / "rocket_mask_angle.py"), "--tag", sam_tag,
+                 "--dets-tag", dets_tag]]
 
     return [
-        Stage("detect", "YOLO 低阈值逐帧推理(需 GPU)",
+        Stage("detect", "YOLO 低阈值逐帧推理(需 GPU; 兼作 SAM 的提示框)",
               [DIAG / f"dets_{dets_tag}.json"], detect),
         Stage("stabilize", "检测时序稳定化 + 前后对比",
               [DIAG / "stabilize_report.txt"], stabilize, ("detect",)),
-        Stage("angle", "ROI 边缘检测 → 倾角 φ(t)",
-              [ANG / "angles.csv", ANG / "angles.json"], angle, ("detect",)),
-        Stage("seg", "SAM 2.1 掩码轮廓分割(方案 B, 需 GPU + third_party/sam2)",
-              [SEGOUT / f"bounds_{dets_tag}.npz",
-               SEGOUT / f"mask_stats_{dets_tag}.csv"], seg, ("detect",)),
-        Stage("angle_mask", "掩码轮廓 → 倾角 φ(t) + 与原方案对拍",
-              [ANGM / f"angles_{dets_tag}.csv"], angle_mask, ("seg",)),
+        Stage("seg", "SAM 2.1 掩码轮廓分割(需 GPU + third_party/sam2)",
+              [SEGOUT / f"bounds_{sam_tag}.npz",
+               SEGOUT / f"mask_stats_{sam_tag}.csv"], seg, ("detect",)),
+        Stage("angle_mask", "掩码剪影中心线 → 倾角 φ(t)",
+              [ANGM / f"angles_{sam_tag}.csv"], angle_mask, ("seg",)),
         Stage("attitude", "相对倾角 + 相机核查 (+可选 β)",
               [ATT / "attitude.csv", ATT / "validate.txt"], attitude,
-              ("angle",)),
+              ("angle_mask",)),
     ]
 
 
-REPORTS = ["angle", "attitude"]      # 这两个阶段自带图表产出
+REPORTS = ["attitude"]               # 自带图表产出的阶段
 
 
 # ==========================================================================
@@ -160,7 +164,7 @@ def run_cmd(cmd: list[str], log) -> int:
 # ==========================================================================
 # 汇总: 只读产物, 不跑任何阶段
 # ==========================================================================
-def summarize(dets_tag: str) -> str:
+def summarize(dets_tag: str, sam_tag: str) -> str:
     L: list[str] = []
 
     def p(s=""):
@@ -170,7 +174,6 @@ def summarize(dets_tag: str) -> str:
 
     meta_f = DIAG / f"dets_{dets_tag}.json"
     att_f = ATT / "attitude.json"
-    ang_f = ANG / "angles.json"
     p("=" * 78)
     p("Rocket Attitude Estimation —— 流水线汇总")
     p("=" * 78)
@@ -212,27 +215,8 @@ def summarize(dets_tag: str) -> str:
               f"预测补位 {coast} 帧")
         p()
 
-    if ang_f.exists():
-        a = json.loads(ang_f.read_text(encoding="utf-8"))
-        fps = a["info"]["fps"]
-        ok = [r for r in a["frames"] if r["ok"]]
-        p("-" * 78)
-        p("[3] 倾角 φ(t)    (相对图像竖直, 正=顶端右倾)")
-        p(f"      有效帧 {len(ok)}/{len(a['frames'])}   基准 φ_ref = "
-          f"{a['info']['ref']:+.3f}°(落地 45-66s)")
-        for lo, hi in groups:
-            m = [r["phi_deg"] for r in ok if lo <= r["frame"] / fps < hi]
-            if len(m) < 3:
-                continue
-            mu = sum(m) / len(m)
-            sd = (sum((x - mu) ** 2 for x in m) / len(m)) ** 0.5
-            p(f"      {lo:>2}-{hi}s: n={len(m):>3}  φ中位 "
-              f"{sorted(m)[len(m) // 2]:+.2f}°  σ {sd:.3f}°  "
-              f"极差 {max(m) - min(m):.2f}°")
-        p()
-
-    # --- SAM 掩码路线(可选) ---
-    am = ANGM / f"angles_{dets_tag}.json"
+    # --- 第 3 步: 倾角 φ(t) —— SAM 2.1 掩码路线(主线) ---
+    am = ANGM / f"angles_{sam_tag}.json"
     if not am.exists() and ANGM.exists():
         # 退化时取"最新的非冒烟"产物, 不要按文件名排序(angles_s512 < angles_smoke,
         # 排序会把冒烟结果当成正式结果)。
@@ -245,7 +229,7 @@ def summarize(dets_tag: str) -> str:
         ok2 = [r for r in a2["frames"] if r["ok"]]
         stag = am.stem.replace("angles_", "")
         p("-" * 78)
-        p(f"[3b] 倾角 φ(t) —— SAM 2.1 掩码路线  (tag={stag}, "
+        p(f"[3] 倾角 φ(t) —— SAM 2.1 掩码路线  (tag={stag}, "
           f"imgsz={a2['info'].get('image_size', '?')}, "
           f"{a2['info'].get('model', '?')})")
         p(f"      有效帧 {len(ok2)}/{len(a2['frames'])}   基准 φ_ref = "
@@ -304,15 +288,18 @@ def summarize(dets_tag: str) -> str:
     p("-" * 78)
     p("产物")
     for f in (DIAG / f"dets_{dets_tag}.json", DIAG / "stabilize_report.txt",
-              ANG / "angles.csv", ANG / "angle_timeline.png",
+              SEGOUT / f"bounds_{sam_tag}.npz",
+              ANGM / f"angles_{sam_tag}.csv",
               ATT / "attitude.csv", ATT / "validate.txt",
               ATT / "attitude_timeline.png", ATT / "attitude_ref.mp4",
-              ATT / "angle_roi.mp4", LOG):
+              LOG):
         mark = "✓" if f.exists() else "·"
         p(f"  {mark} {f.relative_to(PROJECT)}")
     p()
-    p("文档: DETECTION_STABILIZATION.md / ANGLE_ESTIMATION.md / "
-      "ATTITUDE_ESTIMATION.md / TRAINING_REPORT.md")
+    p("文档: DETECTION_STABILIZATION.md / SAM2_MASK_ANGLE.md / "
+      "ATTITUDE_ESTIMATION.md / SPEED_BENCH.md / TRAINING_REPORT.md")
+    p(f"说明: 原方案(ROI 梯度边缘)已下线, 归档在 legacy/ (tag: "
+      f"legacy-gradient-route)")
     return "\n".join(L)
 
 
@@ -336,9 +323,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--tag", default=None, help="检测结果标签, 默认 iou<int(iou*100)>")
     p.add_argument("--l-over-d", type=float, default=float("nan"),
                    help="火箭真实长径比; 给出才计算面外角 β")
-    p.add_argument("--sam", action="store_true",
-                   help="额外跑 SAM 2.1 掩码路线(seg -> angle_mask); "
-                        "需要 third_party/sam2 与 weights/sam2.1_hiera_*.pt")
+    p.add_argument("--sam-tag", default="",
+                   help="掩码路线的产物标签, 默认 s<sam-imgsz>(如 s512); "
+                        "它同时是第 3 步起所有产物的文件名后缀")
     p.add_argument("--sam-model", default="tiny", choices=["tiny", "small"],
                    help="SAM 2.1 规格(默认 tiny)")
     p.add_argument("--sam-imgsz", type=int, default=512,
@@ -353,25 +340,24 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     a = parse_args()
     dets_tag = a.tag or f"iou{int(round(a.iou * 100))}"
-    stages = _stages(dets_tag)
+    sam_tag = a.sam_tag or f"s{a.sam_imgsz}"
+    stages = _stages(dets_tag, sam_tag)
 
     if a.list:
         print(f"{'阶段':<12} {'说明':<34} 产物")
         for s in stages:
             print(f"{s.name:<12} {s.desc:<34} "
                   f"{', '.join(str(x.relative_to(PROJECT)) for x in s.artifacts)}")
-        print(f"\n检测结果标签: --tag {dets_tag}")
+        print(f"\n检测结果标签: --tag {dets_tag}    掩码路线标签: --sam-tag {sam_tag}")
         return
 
     if a.summary:
-        print(summarize(dets_tag))
+        print(summarize(dets_tag, sam_tag))
         return
 
     names = [s.name for s in stages]
-    # SAM 路线(seg / angle_mask)需要 GPU 与 third_party/sam2, 属于**可选**阶段:
-    # 不加 --sam 时默认不跑, 保证原有 detect->stabilize->angle->attitude 行为不变。
-    OPT_IN = ("seg", "angle_mask")
-    sel = list(names) if a.sam else [n for n in names if n not in OPT_IN]
+    # 原方案下线后, SAM 掩码路线就是**唯一主线**, 不再有可选的 opt-in 开关。
+    sel = list(names)
     if a.only:
         want = [x.strip() for x in a.only.split(",") if x.strip()]
         bad = [x for x in want if x not in names]
@@ -390,8 +376,6 @@ def main() -> None:
                 print(f"[x] 未知阶段: {a.to}; 可选 {names}")
                 sys.exit(2)
             sel = [x for x in sel if names.index(x) <= names.index(a.to)]
-        if not a.sam:
-            sel = [x for x in sel if x not in OPT_IN]
 
     LOG.parent.mkdir(parents=True, exist_ok=True)
     print("=" * 78)
@@ -399,11 +383,11 @@ def main() -> None:
     print("=" * 78)
     print(f"  待执行阶段: {' -> '.join(sel)}")
     print(f"  检测标签  : {dets_tag}   (conf={a.conf}, iou={a.iou})")
+    print(f"  掩码标签  : {sam_tag}")
     print(f"  标注视频  : {'开' if a.video_out else '关(--video-out 打开)'}")
     print(f"  长径比    : {a.l_over_d if math.isfinite(a.l_over_d) else '未提供(不算 β)'}")
-    print(f"  SAM 路线  : " + (f"开(sam2.1_hiera_{a.sam_model}, "
-                               f"imgsz={a.sam_imgsz}, chunk={a.sam_chunk})"
-                               if a.sam else "关(--sam 打开)"))
+    print(f"  SAM 路线  : 主线 —— sam2.1_hiera_{a.sam_model}, "
+          f"imgsz={a.sam_imgsz}, chunk={a.sam_chunk}")
     print(f"  日志      : {LOG.relative_to(PROJECT)}")
     print()
 

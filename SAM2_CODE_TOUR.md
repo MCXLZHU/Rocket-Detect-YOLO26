@@ -113,10 +113,13 @@ python scripts\rocket_mask_angle.py --tag demo
 
 | 文件 | 行数 | 用途 |
 |---|---|---|
-| `scripts/compare_video.py` | 489 | 对照可视化。`build_timeline` L118 画双段曲线带（φ + Δφ），`draw_frame` L241 画单帧叠加。注意：**cv2.putText 只支持 ASCII，中文必须走 PIL** |
+| `scripts/sam_angle_viz.py` | ~440 | **成果件**可视化。`build_timeline` 画 φ(t)+dφ/dt 双段曲线带，`draw_frame` 画单帧叠加，`windowed_rate` 是窗内中心差分。注意：**cv2.putText 只支持 ASCII，中文必须走 PIL** |
+| `scripts/viz_common.py` | ~60 | 字体回退链 / CSV 读取 / 配色（BGR 顺序！） |
 | `scripts/_seg_diag.py` | 100 | 可用率诊断。产出 `runs/seg/diag_*.txt`，调体检门限时必看 |
-| `scripts/_seg_vs_grad.py` | 181 | 掩码边界 vs 原方案拟合边线的逐帧对拍。**"原方案量到涂装条纹"这个结论就是从这里出来的** |
 | `scripts/_seg_probe.py` | 129 | 探测"掩码到底圈住了什么" |
+
+> 已删除：`compare_video.py`（对拍可视化）与 `_seg_vs_grad.py`（掩码边界 vs 梯度边线对拍）
+> —— 它们依赖已下线的原方案。其产物与结论留档在 `legacy/`。
 
 ---
 
@@ -139,8 +142,8 @@ python scripts\rocket_mask_angle.py --tag demo
 | 文件 | 只读这些 | 为什么 |
 |---|---|---|
 | `scripts/rocket_track.py` | `track_frames` L445、`RocketTracker.step` L322、`suppress_nested` L93 | 第 2 步的稳定框就是 SAM 的提示来源；`ios_xyxy` L61 解释了为什么嵌套框 NMS 抓不到 |
-| `scripts/rocket_angle.py` | `fit_band_axis` L373、`_robust_line` L175、`smooth_and_reference` L770 | 中心线拟合与平滑是**复用**的，原方案的数学在这里 |
-| `pipeline.py` | `_stages` L76 | 看 `seg` / `angle_mask` 两个可选阶段怎么接进流水线 |
+| `scripts/angle_core.py` | `robust_line`、`smooth_and_reference`、`save` | 测角共享内核（结果容器 / IRLS 拟合 / 时序平滑 / 落盘）。**原方案的 `rocket_angle.py` 已下线**，这里是从它抽出来的公共部分 |
+| `pipeline.py` | `_stages` | 看 `seg` / `angle_mask` / `attitude` 怎么接进流水线（已无 `--sam` 开关） |
 
 ---
 

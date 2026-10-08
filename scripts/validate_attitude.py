@@ -33,7 +33,6 @@ sys.path.insert(0, str(PROJECT / "scripts"))
 import rocket_attitude as RA  # noqa: E402
 
 OUT = PROJECT / "runs" / "attitude"
-ANG = PROJECT / "runs" / "angle"
 L: list[str] = []
 
 
@@ -48,9 +47,13 @@ def sd(v):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--l-over-d", type=float, default=float("nan"))
+    ap.add_argument("--dets-tag", default="iou70")
+    ap.add_argument("--src-tag", default="s512",
+                    help="第 3 步掩码路线的标签(读 angles_<src-tag>.json)")
     a = ap.parse_args()
     cfg = RA.AttitudeConfig(l_over_d=a.l_over_d)
-    res, info, extra = RA.run(cfg, verbose=False)
+    res, info, extra = RA.run(cfg, dets_tag=a.dets_tag, verbose=False,
+                              src_tag=a.src_tag)
     fps = info["fps"]
     W, H = info["W"], info["H"]
 
@@ -245,16 +248,20 @@ def main():
             p(f"  ❌ 这条路的**失败本身就是结论**: 标定后下降段的 β 在 "
               f"{min(des_b):.0f}°~{max(des_b):.0f}° 之间大幅摆动,")
             p("     而一枚正在垂直降落的火箭不可能在面外摆动几十度。")
-            p("     唯一自洽的解释是: **w_body 在不同阶段量到了不同的结构**")
-            p("     (实测其占框宽比例从 0.34 变到 0.82 —— 有时是筒身轮廓,")
-            p("      有时是涂装条纹或整流罩棱线), 于是'长径比'这个量本身不成立。")
+            p("     唯一自洽的解释是: 上表那个'长宽比'根本不是火箭的长径比 L/D。")
+            p("     掩码路线的 w_body 已经是**剪影轮廓宽**(口径正确, 不再有'量到涂装")
+            p("     条纹'的问题), 但分子的'沿轴跨度'是**参与拟合的筒身段长度**, 它会随")
+            p("     '筒身段被裁到哪里'而变化(早期箭体只有几像素宽、下端被支腿/尾焰污染),")
+            p("     实测该比值从 3.93 变到 9.48 ⇒ 拿它当 L/D 去解 β 必然发散。")
             p()
-            p("  ⇒ 结论: 单视角 + 无相机参数 + 宽度口径不一致 ⇒ **面外角 β 与完整")
+            p("  ⇒ 结论: 单视角 + 无相机参数 + 缺真实三维尺度 ⇒ **面外角 β 与完整")
             p("     3D 姿态在本视频上不可反算**。这不是算法不够好, 而是信息量不足")
             p("     (单视角下的 'bas-relief 深度歧义'), 想解决必须补充其一:")
             p("       (a) 已知的火箭真实三维尺寸/模型 → 用剪影匹配直接拟合姿态;")
-            p("       (b) 可靠分割出筒身轮廓(而不是检测框/条纹) → 才能谈宽度;")
-            p("       (c) 多视角 / 已知相机内参+俯仰 → 才能定竖直消失点与尺度。")
+            p("       (b) 已知相机内参+俯仰 → 才能由剪影宽度反解面外角;")
+            p("       (c) 多视角 → 才能定竖直消失点与尺度。")
+            p("     注: 掩码路线已经解决了旧方案里'宽度口径'这一项(旧方案的 w_body")
+            p("     量到的是涂装条纹, 比值≈0.5×框宽), 剩下的缺口是三维尺度与相机内参。")
     p()
 
     # ---------- 5) 分阶段角度汇总 ----------

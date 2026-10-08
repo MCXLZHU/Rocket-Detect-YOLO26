@@ -36,7 +36,6 @@ sys.path.insert(0, str(PROJECT / "scripts"))
 from rocket_track import TrackerConfig, track_frames  # noqa: E402
 
 DIAG = PROJECT / "runs" / "diag"
-ANG = PROJECT / "runs" / "angle"
 OUT = PROJECT / "runs" / "attitude"
 
 

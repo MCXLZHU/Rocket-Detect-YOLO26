@@ -49,13 +49,8 @@ runs/**/*.mp4
 runs/smoke_run/
 runs/smoke_test/
 runs/smoke_test2/
-# 测角调试图 (中间调试用, 正式结论见 angle_timeline.png / validate.txt)
-runs/angle/debug/
-runs/angle/debug2/
-runs/angle/debug3/
-# 冒烟测试的倾角结果
-runs/angle/angles_smoke*.csv
-runs/angle/angles_smoke*.json
+# 注: 原方案(runs/angle/*)的诊断/调试/冒烟规则已随该方案下线一并删除
+# (原方案代码与产物归档在 legacy/, 那是要入库的)
 
 # ---------- 8. 日志 ----------
 *.log

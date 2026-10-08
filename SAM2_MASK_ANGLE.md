@@ -1,13 +1,18 @@
-# SAM 2.1 掩码路线（方案 B）—— 实现、实测与对拍
+# SAM 2.1 掩码路线 —— 实现、实测与对拍
+
+> **文档状态（2026-10-08）**：本文写作时项目还是"两条路线并存"。
+> 现在**原方案（ROI 梯度边缘）已下线**、代码归档在 `legacy/`，所以文中所有
+> "对拍 / 对比 / 谁更好"的章节**只作为选型依据留档**，其中的原方案数据不再复现。
+> 本文仍是第 3 步的**主文档**（SAM 路线的实现与实测部分继续有效且是当前实现）。
 
 **一句话**：已把"一次提示 + 流式记忆传播 + YOLO 框周期体检"完整落地成可跑的流水线阶段
-（`seg` → `angle_mask`），并在本机做了精度与实时性的实测。**精度三项全面优于原方案**，
-实时性在 `512 + fp16` 配置下达到 30 fps 的传播速度。
+（`seg` → `angle_mask`），并在本机做了精度与实时性的实测。**精度三项全面优于原方案**
+（原方案已因此下线），实时性在 `512 + fp16` 配置下达到 30 fps 的传播速度。
 
 **分支**：`sam2-video-mask`（从 `main` 切出；本机 git 无法创建带斜杠的嵌套引用名
 `refs/heads/feature/xxx`，故用扁平名。见文末"环境备注"）
 **入口**：`scripts/rocket_seg.py`（分割）、`scripts/rocket_mask_angle.py`（测角）、
-`pipeline.py --sam`（接进流水线）
+`pipeline.py`（已是唯一主线，不再需要 `--sam` 开关）
 
 ---
 
@@ -120,7 +125,12 @@ YOLO 稳定框 (第 2 步)                     SAM 2.1
 
 ### 3.5 可视化：怎么"看一眼"就判断谁对
 
-`scripts/compare_video.py` 把两条路线量到的**边**画在同一帧上，下面接一条双段曲线带：
+> ⚠️ **本节描述的工具 `scripts/compare_video.py` 已随原方案一起删除**（它画的是两条路线的边，
+> 原方案下线后无从复现）。当前的可视化入口是 `scripts/sam_angle_viz.py`（只画 SAM 路线），
+> 本节与下面的示例命令**仅作历史留档**，其产物已归档到 `legacy/`。
+> 唯一仍然有效的一条经验：**纵轴量程必须自适应，不能写死**（见下方引用块）。
+
+原对拍工具把两条路线量到的**边**画在同一帧上，下面接一条双段曲线带：
 
 | 元素 | 含义 |
 |---|---|
@@ -142,11 +152,13 @@ YOLO 稳定框 (第 2 步)                     SAM 2.1
 > 被截顶的帧数会打印并写进图内标题（本片 24/1797），不静默丢失。
 
 ```powershell
-python scripts/compare_video.py --tag s1024                     # 单配置
-python scripts/compare_video.py --tag s512 --vs2 s1024          # 两种分辨率同屏
-python scripts/compare_video.py --tag s512 --stills 6           # 额外出抽帧拼图
-python scripts/compare_video.py --tag s512 --start 1400 --end 1600   # 只看落地段
-python scripts/compare_video.py --tag s1024 --no-video          # 只要曲线对照图
+# 历史命令(工具已删除, 保留供追溯产物怎么来的)
+# python scripts/compare_video.py --tag s512 --vs2 s1024 --stills 6
+
+# 当前的可视化入口:
+python scripts/sam_angle_viz.py --tag s512 --stills 6            # 成果件(只看 SAM 路线)
+python scripts/sam_angle_viz.py --tag s1024 --no-video           # 只要曲线图
+python scripts/sam_angle_viz.py --tag s512 --start 1400 --end 1600   # 只看落地段
 ```
 
 产物（都在 `runs/seg/`）：
