@@ -24,6 +24,7 @@ SAM 路线的落地段重复性 σ≈0.04°(比原方案小 6 倍), 但这个数
   4. 对 φ(θ) 做线性回归: 斜率 = 旋转增益, 截距 = 偏置, 残差 = 随机误差。
 
 用法:
+    python scripts/validate_mask_angle.py --tag s512            # 帧号自动选
     python scripts/validate_mask_angle.py --tag s512 --frames 1400,1500,1600,1800,2000
     python scripts/validate_mask_angle.py --tag s512 --image-size 512 --angles -3,-1.5,-1,-0.5,0,0.5,1,1.5,3
 """
@@ -55,6 +56,7 @@ import torch  # noqa: E402
 
 from rocket_mask_angle import MaskAngleConfig, estimate  # noqa: E402
 from rocket_seg import CFG_FILE, CKPT_FILE, mask_geom  # noqa: E402
+from video_io import resolve_video, video_key  # noqa: E402
 
 DETS = PROJECT / "runs" / "diag"
 OUT = PROJECT / "runs" / "angle_mask"
@@ -78,14 +80,18 @@ def main() -> None:
     ap.add_argument("--model", default="tiny", choices=list(CFG_FILE))
     ap.add_argument("--image-size", type=int, default=512)
     ap.add_argument("--angles", default="-3,-1.5,-1,-0.5,0,0.5,1,1.5,3")
-    ap.add_argument("--frames", default="1400,1500,1600,1800,2000")
+    ap.add_argument("--frames", default="",
+                    help="要注入的帧号(逗号分隔); 留空=自动在有箭体的区间里等距取 5 帧"
+                         "(原来写死本视频的 1400,1500,1600,1800,2000)")
+    ap.add_argument("--dets-tag", default="iou70", help="读哪份检测产物")
     ap.add_argument("--half", action="store_true", default=True)
     ap.add_argument("--no-half", dest="half", action="store_false")
     a = ap.parse_args()
 
     from sam2.build_sam import build_sam2_video_predictor
 
-    meta = json.loads((DETS / "dets_iou70.json").read_text(encoding="utf-8"))
+    meta = json.loads((DETS / f"dets_{a.dets_tag}.json").read_text(
+        encoding="utf-8"))
     vm = meta["meta"]
     W, H, fps = vm["W"], vm["H"], vm["fps"]
 
@@ -97,10 +103,23 @@ def main() -> None:
         hydra_overrides_extra=[f"++model.image_size={a.image_size}"])
 
     angles = [float(v) for v in a.angles.split(",") if v.strip()]
-    frames = [int(v) for v in a.frames.split(",") if v.strip()]
-    cap = cv2.VideoCapture(str(PROJECT / vm["video"]))
+    if a.frames.strip():
+        frames = [int(v) for v in a.frames.split(",") if v.strip()]
+    else:
+        # 自动选帧: 只在"画面里真有火箭(有 RB 框)"的区间里等距取 5 帧
+        rb_all = [i for i, r in enumerate(meta["frames"])
+                  if any(b["c"] == 1 for b in r["b"])]
+        if not rb_all:
+            print("[x] 整片没有 Rocket Body 检测, 无法做注入验证")
+            return
+        lo, hi = rb_all[0], rb_all[-1]
+        k = 5
+        frames = [int(round(lo + (hi - lo) * (i + 0.5) / k)) for i in range(k)]
+        print(f"[自动选帧] RB 区间 {lo}..{hi} -> {frames}", flush=True)
+    cap = cv2.VideoCapture(str(resolve_video(vm)))
     macfg = MaskAngleConfig()
-    rot_root = CACHE / "rot_test"
+    # 同样要带视频标识, 否则换视频后会把上一个视频的旋转帧当成"已生成"直接用
+    rot_root = CACHE / "rot_test" / video_key(vm)
     rot_root.mkdir(parents=True, exist_ok=True)
     rows = []
     for f in frames:

@@ -1,0 +1,19 @@
+{
+ "W": 640,
+ "H": 360,
+ "fps": 30.0,
+ "video": "rocket_trim_360p.mp4",
+ "n_frame": 1753,
+ "model": "tiny",
+ "image_size": 512,
+ "half": true,
+ "chunk": 200,
+ "elapsed_s": 97.2,
+ "n_track": 1611,
+ "n_ok": 1553,
+ "n_reanchor": 12,
+ "start": 0,
+ "end": 1753,
+ "save_masks": false,
+ "mask_rec_bytes": 28800
+}

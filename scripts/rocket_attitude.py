@@ -60,6 +60,9 @@ os.environ["MPLCONFIGDIR"] = str(CACHE / "mpl")
 
 import cv2  # noqa: E402
 
+sys.path.insert(0, str(PROJECT / "scripts"))
+from video_io import resolve_video  # noqa: E402
+
 DIAG = PROJECT / "runs" / "diag"
 ANGM = PROJECT / "runs" / "angle_mask"    # 掩码路线测角结果(本步的输入)
 OUT = PROJECT / "runs" / "attitude"
@@ -70,7 +73,10 @@ OUT = PROJECT / "runs" / "attitude"
 # ==========================================================================
 @dataclass
 class AttitudeConfig:
-    ref_range: tuple = (45.0, 66.0)   # 落地静止段, 用作"竖直基准"
+    # 注: 原来这里有 ref_range=(45,66) —— "片尾落地静止段"当竖直基准, 那是只对
+    # 某一段视频成立的先验, 已删除。本步只输出**绝对夹角**(轴线 vs 图像竖直/上边缘),
+    # 不需要任何参考段; 相对倾角 φ_rel 随之废弃。
+    cam_ref_frac: float = 0.5         # 相机配准参考帧: 取有效区间的该分位处(0~1)
     l_over_d: float = float("nan")    # 火箭真实长径比; 不给就不算面外角
     ld_scan: tuple = (8.0, 11.0, 14.0, 17.0, 20.0)   # 灵敏度扫描用
     cam_scale: float = 0.5            # 背景配准的降采样倍数(提速)
@@ -256,18 +262,17 @@ def run(cfg: AttitudeConfig | None = None, dets_tag: str = "iou70",
         verbose: bool = True, src_tag: str = "s512"):
     """src_tag: 第 3 步测角结果的标签。
 
-    本步的输入已从"原方案梯度边缘"(`runs/angle/angles.json`)切到
-    **SAM 2.1 掩码路线**(`runs/angle_mask/angles_<src_tag>.json`)。
-    两条路线的 JSON **字段结构完全一致**(同一套 `angle_core.AngleResult` 契约),
-    所以这里只换路径, 下游的几何换算一行都不用动 —— 相对倾角 φ_rel / 与上边缘夹角 /
-    相机静止性这些结论也就自动继承到掩码路线上。
+    输入是 **SAM 2.1 掩码路线**的 `runs/angle_mask/angles_<src_tag>.json`。
+    本步只输出**绝对量**: φ(t)(轴线 vs 图像竖直)、90−|φ|(vs 图像上边缘)、角速率、
+    相机滚转核查、参数化面外角 β。**不输出相对倾角 φ_rel** —— 它需要一个"参考姿态",
+    而唯一能拿到的是"片尾落地静止即竖直", 那是针对特定视频的先验(已废弃)。
     """
     cfg = cfg or AttitudeConfig()
     meta = json.loads((DIAG / f"dets_{dets_tag}.json").read_text(
         encoding="utf-8"))
     vmeta = meta["meta"]
     W, H, fps = vmeta["W"], vmeta["H"], vmeta["fps"]
-    vpath = PROJECT / vmeta["video"]
+    vpath = resolve_video(vmeta)     # 支持项目外的视频(见 video_io.py)
 
     # --- 读第 3 步(SAM 掩码路线)的结果: 拿 phi / w_body / conf, box 另由 tracker 复现 ---
     src = ANGM / f"angles_{src_tag}.json"
@@ -277,7 +282,6 @@ def run(cfg: AttitudeConfig | None = None, dets_tag: str = "iou70",
             f"rocket_mask_angle.py --tag {src_tag}")
     ang = json.loads(src.read_text(encoding="utf-8"))
     ang_fr = ang["frames"]
-    ref = ang["info"]["ref"]
 
     # 用 tracker 重新拿每帧的 box(背景屏蔽要用)
     sys.path.insert(0, str(PROJECT / "scripts"))
@@ -291,8 +295,7 @@ def run(cfg: AttitudeConfig | None = None, dets_tag: str = "iou70",
                      ok=bool(a["ok"]), reason=a.get("reason") or "",
                      phi_deg=a["phi_deg"] if a["phi_deg"] is not None else
                      float("nan"),
-                     phi_rel=a["phi_rel"] if a["phi_rel"] is not None else
-                     float("nan"),
+                     phi_rel=float("nan"),   # 相对倾角已废弃(见 run 的说明)
                      axis_len_px=a["axis_len_px"] if a.get("axis_len_px")
                      is not None else float("nan"),
                      w_body_px=a["w_body_px"] if a["w_body_px"] is not None
@@ -307,7 +310,18 @@ def run(cfg: AttitudeConfig | None = None, dets_tag: str = "iou70",
     # --- 相机静止性: 逐帧背景配准(**直接**对参考帧配准, 不累加) ---
     # 为什么不能逐帧累加: 单帧误差 σ≈0.018°, 2202 帧随机游走会累出 5.9° 的假漂移。
     # 直接对固定参考帧配准, 误差不累积。
-    ref_idx = 2000
+    # 参考帧不写死(原来是 2000): 取"有稳定框的区间的 cam_ref_frac 分位处"。
+    # 任何背景占比足够的帧都能当配准参考, 取区间中位是为了让各帧与参考帧的
+    # 外观差异不要太大(时间上离得太远会拉低 NCC)。
+    valid_idx = [i for i, o in enumerate(outs) if o.has and o.box is not None]
+    ref_idx = (valid_idx[int(round(cfg.cam_ref_frac * (len(valid_idx) - 1)))]
+               if valid_idx else 0)
+    ref_idx = max(0, min(ref_idx, len(outs) - 1))
+    if verbose:
+        print(f"[参考帧] 相机配准参考帧 = {ref_idx} "
+              f"({ref_idx / fps:.1f}s, 有效区间 "
+              f"{valid_idx[0] if valid_idx else '-'}.."
+              f"{valid_idx[-1] if valid_idx else '-'})", flush=True)
     cap = open_cap(vpath)
     cap.set(cv2.CAP_PROP_POS_FRAMES, ref_idx)
     okf, frref = cap.read()
@@ -339,12 +353,14 @@ def run(cfg: AttitudeConfig | None = None, dets_tag: str = "iou70",
                   flush=True)
 
     # --- 相机估计器灵敏度校验(注入已知运动) ---
-    cap.set(cv2.CAP_PROP_POS_FRAMES, 1500)
+    # 用参考帧做校验(不写死帧号): 保证该帧一定有稳定框, 且与配准用的背景一致
+    cap.set(cv2.CAP_PROP_POS_FRAMES, ref_idx)
     okf, fr = cap.read()
     inj_rot, inj_sh = ([], [])
     if okf:
         g = cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY)
-        inj_rot, inj_sh = validate_motion_estimator(g, outs[1500].box, cfg)
+        inj_rot, inj_sh = validate_motion_estimator(
+            g, outs[ref_idx].box if outs[ref_idx].has else None, cfg)
     cap.release()
 
     # --- 角度换算 + 可选 β ---
@@ -356,12 +372,15 @@ def run(cfg: AttitudeConfig | None = None, dets_tag: str = "iou70",
         if np.isfinite(cfg.l_over_d):
             r.beta_deg, _raw = beta_from_aspect(r.axis_len_px, r.w_body_px,
                                                 cfg.l_over_d)
-            r.tilt_total = total_tilt(r.phi_rel, r.beta_deg)
+            # 用**绝对**倾角 φ(相对图像竖直)与面外角 β 合成总倾角;
+            # 原实现用相对倾角 φ_rel, 那个参考段已废弃
+            r.tilt_total = total_tilt(r.phi_deg, r.beta_deg)
 
-    info = dict(W=W, H=H, fps=fps, ref=ref, l_over_d=cfg.l_over_d,
+    info = dict(W=W, H=H, fps=fps, l_over_d=cfg.l_over_d,
                 video=vmeta["video"], n_frame=len(res),
                 cam_ref_frame=ref_idx, cam_n_valid=n_valid,
-                angle_src=f"angle_mask/angles_{src_tag}.json")
+                angle_src=f"angle_mask/angles_{src_tag}.json",
+                src_tag=src_tag, dets_tag=dets_tag)
     return res, info, dict(inj_rot=inj_rot, inj_shift=inj_sh,
                            outs=outs, cfg=cfg, vpath=vpath)
 

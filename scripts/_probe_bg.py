@@ -32,6 +32,7 @@ import cv2  # noqa: E402
 
 sys.path.insert(0, str(PROJECT / "scripts"))
 from rocket_track import TrackerConfig, track_frames  # noqa: E402
+from video_io import resolve_video  # noqa: E402
 
 DIAG = PROJECT / "runs" / "diag"
 OUT = PROJECT / "runs" / "attitude"
@@ -110,13 +111,18 @@ def rot_search(prev, cur, max_deg=2.0, coarse=0.25, fine=0.05):
 def main():
     import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pairs", type=int, nargs="+", default=None)
+    ap.add_argument("--pair-gap", type=int, default=100,
+                   help="配准对的帧间隔(默认 100 帧 ≈3.3s)")
+    ap.add_argument("--pairs", type=int, nargs="+", default=None,
+                   help="直接指定要比较的帧号对(空格分隔)")
+    ap.add_argument("--dets-tag", default="iou70")
     args = ap.parse_args()
-    meta = json.loads((DIAG / "dets_iou70.json").read_text(encoding="utf-8"))
+    meta = json.loads((DIAG / f"dets_{args.dets_tag}.json").read_text(
+        encoding="utf-8"))
     W, H, fps = meta["meta"]["W"], meta["meta"]["H"], meta["meta"]["fps"]
     outs = track_frames([r["b"] for r in meta["frames"]], TrackerConfig(), fps,
                         bound_wh=(W, H))
-    cap = open_cap(PROJECT / meta["meta"]["video"])
+    cap = open_cap(resolve_video(meta["meta"]))
     (OUT / "bg").mkdir(parents=True, exist_ok=True)
 
     p("=" * 80)
@@ -125,7 +131,13 @@ def main():
     p(f"{W}x{H} @ {fps:.2f}fps")
     p()
 
-    probes = [500, 700, 900, 1100, 1200, 1500, 1900, 2050]
+    # 探测帧按视频总长等距取(不再写死本视频的帧号); --pairs 可显式指定
+    n_all = len(meta["frames"])
+    if args.pairs:
+        probes = [f for f in args.pairs if 0 <= f < n_all]
+    else:
+        k = 8
+        probes = [int(round(n_all * (i + 1) / (k + 1))) for i in range(k)]
     p("-" * 80)
     p("[A] 地平线候选(近似水平长直线)")
     p("-" * 80)

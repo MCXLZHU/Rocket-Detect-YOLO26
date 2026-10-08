@@ -33,6 +33,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 sys.path.insert(0, str(PROJECT / "scripts"))
 from rocket_track import TrackerConfig, track_frames  # noqa: E402
+from video_io import resolve_video  # noqa: E402
 
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
@@ -50,12 +51,17 @@ def open_cap(path: Path):
 
 
 def main():
-    d = json.loads((DIAG / "dets_iou70.json").read_text(encoding="utf-8"))
+    import argparse
+    ap = argparse.ArgumentParser(description="稳定框标注视频 + 时间线图")
+    ap.add_argument("--dets-tag", default="iou70", help="读哪份检测产物")
+    a = ap.parse_args()
+    d = json.loads((DIAG / f"dets_{a.dets_tag}.json").read_text(
+        encoding="utf-8"))
     FH = [r["b"] for r in d["frames"]]
     meta = d["meta"]
     W, H = meta["W"], meta["H"]
     fps = meta["fps"]
-    video = PROJECT / meta["video"]
+    video = resolve_video(meta)      # 支持项目外的视频(见 video_io.py)
 
     cfg = TrackerConfig()
     outs = track_frames(FH, cfg, fps, bound_wh=(W, H))

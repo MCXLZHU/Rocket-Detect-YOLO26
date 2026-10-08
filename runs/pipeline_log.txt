@@ -476,3 +476,1841 @@ $ E:\Anaconda\envs\yolo26\python.exe E:\RocketAttitudeEstimation\scripts\diag_vi
 完成: 2203 帧, 35.5 秒 (62.1 fps)
 输出: E:\RocketAttitudeEstimation\runs\diag\dets__t.json
 [退出码 0  用时 50.2s]
+
+==============================================================================
+运行 2026-10-08 14:26:18  阶段 ['angle_mask', 'attitude']
+
+$ E:\Anaconda\envs\yolo26\python.exe E:\RocketAttitudeEstimation\scripts\rocket_mask_angle.py --tag s512 --dets-tag iou70
+[完成] 有效 1826/2203 帧  (无掩码 366, 拟合失败 11)
+       输出: 箭体轴线相对**图像竖直**的绝对倾角 φ(t)(不做相对姿态, 无参考段先验)
+[写入] E:\RocketAttitudeEstimation\runs\angle_mask\angles_s512.csv / angles_s512.json
+[退出码 0  用时 4.1s]
+
+$ E:\Anaconda\envs\yolo26\python.exe E:\RocketAttitudeEstimation\scripts\validate_attitude.py --dets-tag iou70 --src-tag s512
+[写入] E:\RocketAttitudeEstimation\runs\attitude\attitude.csv / attitude.json
+==================================================================================
+第 4 步(姿态反算) 验证与结论
+==================================================================================
+视频 1-朱雀3号瑶二，再入回收全过程，这次是真的稳啊！纯净的像cg。-480P 标清-AVC.mp4
+852x480 @ 30.00fps, 2203 帧
+输出: 箭体轴线相对**图像竖直**的绝对倾角 φ(t) —— 纯几何量, 无需任何基准
+      (不再输出相对倾角 φ_rel: 它依赖"片尾落地即竖直"这个只对特定视频
+       成立的先验, 已废弃)
+
+----------------------------------------------------------------------------------
+[1] 相机运动估计器的灵敏度校验(注入已知运动)
+----------------------------------------------------------------------------------
+  为什么必须先做这一步: '测出相机静止'有两种可能 —— 真相机静止, 或估计器
+  根本不敏感。只有注入已知运动并成功恢复, 才能排除后者。
+
+       注入滚转(°)      测得(°)       偏差    |       注入平移(px)    测得dx(px)       偏差
+          0.25      0.250    0.000    |          0.50      -0.275    0.225
+          0.50      0.500    0.000    |          1.00      -1.160   -0.160
+          1.00      1.000    0.000    |          2.00      -1.868    0.132
+
+  滚转估计增益 = 1.000 (理想 1.000), 偏置 -0.0000°
+  ⇒ 估计器对 0.25° 量级的滚转有响应, 可作为'相机静止'的判据。
+
+----------------------------------------------------------------------------------
+[2] 全片相机运动统计(每帧**直接**对参考帧 1165 配准, 不逐帧累加)
+----------------------------------------------------------------------------------
+  为什么不累加: 单帧滚转误差 σ≈0.018°, 2202 帧随机游走会累出约 6° 的假漂移。
+
+  配准可信帧(NCC≥0.6): 1258/2203
+  背景配准 NCC: 中位 0.8073  P5 0.0778  最小 -0.0728
+  有效帧的滚转: 中位 +0.0900°  σ 0.1064°  极差 [-0.220, +0.200]°
+
+                  时段     可信帧       滚转中位       滚转σ    |滚转|max
+         前 1/3 8-28s      25     +0.140     0.178      0.180
+        中 1/3 28-49s     616     -0.050     0.125      0.220
+        后 1/3 49-69s     617     +0.090     0.004      0.110
+
+  全片有效帧: 滚转 σ 0.106°, 最大 0.220°; 后 1/3 段 σ 0.004°
+  ⇒ 相机若**基本静止**(σ 与单个配准误差同量级), 则 φ(t) 可直接当作箭体相对地面的姿态;
+     若某段 σ 明显更大, 该段应减去 cam_roll(t)(实测最大 0.22°)。
+  相机滚转对倾角测量的误差贡献: 约 0.11°(1σ), 最大 0.22°
+
+----------------------------------------------------------------------------------
+[3] 透视项的量级: 竖直线在画面里的收敛(位置相关倾角)
+----------------------------------------------------------------------------------
+  竖直线在像面会向**竖直消失点**收敛, 位置 x 处的额外倾角 ≈ atan(|x−x_c|·tanθ_pitch / f)。
+  画面中心 x_c = 426.0px
+  前 1/3 8-28s: 横向偏离最大 100.2px;  f= 400px, 俯仰 20°  ->  5.207°
+  前 1/3 8-28s: 横向偏离最大 100.2px;  f= 800px, 俯仰 10°  ->  1.265°
+  前 1/3 8-28s: 横向偏离最大 100.2px;  f=1600px, 俯仰 10°  ->  0.632°
+  中 1/3 28-49s: 横向偏离最大 16.9px;  f= 400px, 俯仰 20°  ->  0.883°
+  中 1/3 28-49s: 横向偏离最大 16.9px;  f= 800px, 俯仰 10°  ->  0.214°
+  中 1/3 28-49s: 横向偏离最大 16.9px;  f=1600px, 俯仰 10°  ->  0.107°
+  后 1/3 49-69s: 横向偏离最大 8.0px;  f= 400px, 俯仰 20°  ->  0.415°
+  后 1/3 49-69s: 横向偏离最大 8.0px;  f= 800px, 俯仰 10°  ->  0.101°
+  后 1/3 49-69s: 横向偏离最大 8.0px;  f=1600px, 俯仰 10°  ->  0.050°
+  ⇒ 该项只取决于'火箭离画面中心多远' × '相机俯仰角', 与视频内容无关:
+     横向偏离小(如 8px 量级)时可忽略;
+     偏离大或相机俯仰大时必须从 φ 中扣除 —— 本工具无法自行扣除(未知内参),
+     只能给出量级上界 5.2° 供判断。
+
+----------------------------------------------------------------------------------
+[4] 面外角 β 的灵敏度 —— 「完整 3D 姿态不可靠」的量化依据
+----------------------------------------------------------------------------------
+  目标最大的那一半帧 n=908: 沿轴投影长度 300.0px, 拟合筒身宽 32.0px(σ 1.08), YOLO 框宽 35.5px (比值 1.11 ⇒ 框被支腿/栅格舵撑大)
+
+          宽度口径      长宽比  cosβ_raw      L/D=8    L/D=11    L/D=14    L/D=17    L/D=20
+         拟合筒身宽     9.38      0.67        0.0      31.5      48.0      56.5      62.0
+       YOLO 框宽     8.45      0.60        0.0      39.8      52.9      60.2      65.0
+
+  ⇒ 同一画面, 换宽度口径或换 L/D, β 就能从 0° 变到 60°+。**β 只能当
+     参数化假想姿态。** 另外底数那个'长宽比'本身也不是火箭的 L/D:
+     掩码的 w_body 是剪影轮廓宽(口径正确), 但分子的'沿轴跨度'是**参与拟合
+     的筒身段长度**, 随'筒身段被裁到哪里'变化(小目标段下端易被支腿/尾焰污染),
+     所以拿它当 L/D 去解 β 必然发散 —— 这是**信息量不足**, 不是算法问题。
+     想解决必须补其一: (a) 真实三维尺寸/模型; (b) 已知相机内参+俯仰; (c) 多视角。
+
+
+----------------------------------------------------------------------------------
+[5] 分段角度汇总(有效帧; 分档按有效区间三等分, 不写死时间)
+----------------------------------------------------------------------------------
+                  时段    帧数       相对竖直φ中位      φσ        相对上边缘(锐角)   dφ/dt中位(°/s)
+         前 1/3 8-28s   611         +3.91   6.430            85.41          -0.34
+        中 1/3 28-49s   569         +0.23   0.913            89.32          +0.09
+        后 1/3 49-69s   617         +0.43   0.059            89.57          +0.00
+
+==================================================================================
+[6] 结论
+==================================================================================
+  ✅ 可行(本模块主输出, 全部是**绝对量**, 不依赖任何参考基准):
+     · 箭体轴线与**图像竖直方向**的夹角 φ(t)  —— 纯几何量, 无需相机参数
+     · 与**图像上边缘(水平方向)**的夹角 = 90° − |φ|
+     · 角速率 dφ/dt —— 不需要任何标定的姿态动力学量
+  ⚠️ 不可靠(仅作参数化假想姿态):
+     · 面外角 β 与总倾角 —— 依赖未知的 L/D 与筒身宽度, 实测可从 0° 变到 60°+
+     · β 的符号(朝向/远离相机)单视角无法区分
+  ℹ️ 已废弃: 相对倾角 φ_rel —— 它需要一个"参考姿态", 唯一能拿到的是"片尾落地
+     即竖直", 那是只对特定视频成立的先验, 换视频即失效, 故不再输出。
+  ℹ️ 相机滚转(cam_roll)是独立测出来的: 若全片 σ 与单帧配准误差同量级, 说明相机静止,
+     此时 φ(t) 可直接当作箭体相对地面的姿态; 否则应逐帧减去 cam_roll(t)。
+
+[写入] E:\RocketAttitudeEstimation\runs\attitude\validate.txt  +  attitude.csv / attitude.json
+[退出码 0  用时 89.4s]
+
+$ E:\Anaconda\envs\yolo26\python.exe E:\RocketAttitudeEstimation\scripts\attitude_report.py
+-> E:\RocketAttitudeEstimation\runs\attitude\attitude_timeline.png
+Traceback (most recent call last):
+  File "E:\RocketAttitudeEstimation\scripts\attitude_report.py", line 167, in <module>
+    main()
+  File "E:\RocketAttitudeEstimation\scripts\attitude_report.py", line 152, in main
+    f"dphi/dt={v['dphi_dt']:+.2f}")
+              ^^^^^^^^^^^^^^^^^^^
+TypeError: unsupported format string passed to NoneType.__format__
+[退出码 1  用时 2.2s]
+
+==============================================================================
+运行 2026-10-08 14:29:49  阶段 ['detect', 'stabilize', 'seg', 'angle_mask']
+
+$ E:\Anaconda\envs\yolo26\python.exe E:\RocketAttitudeEstimation\scripts\diag_video_detections.py --tag gentest --conf 0.02 --iou 0.7 --video E:/_rocket_generalize_test/rocket_trim_360p.mp4
+==========================================================================
+逐帧检测导出 (诊断)
+==========================================================================
+  视频: rocket_trim_360p.mp4
+  规格: 640x360  30.0 fps  1753 帧
+  conf=0.02  iou=0.7  imgsz=640  tag=gentest
+
+    400/1753 帧   11.4s  (35.2 fps)
+    800/1753 帧   15.7s  (51.0 fps)
+   1200/1753 帧   19.8s  (60.7 fps)
+   1600/1753 帧   24.7s  (64.8 fps)
+
+完成: 1753 帧, 26.4 秒 (66.3 fps)
+输出: E:\RocketAttitudeEstimation\runs\diag\dets_gentest.json
+[退出码 0  用时 30.2s]
+
+$ E:\Anaconda\envs\yolo26\python.exe E:\RocketAttitudeEstimation\scripts\rocket_seg.py --dets-tag gentest --tag g360 --model tiny --image-size 512 --chunk 200
+[构建] sam2.1_hiera_tiny image_size=512 half=True
+[构建] 0.8s
+[块 0-200) 200 帧, 有框 200  [RAM 1.03GB  VRAM 287MB]
+
+frame loading (JPEG):   0%|          | 0/200 [00:00<?, ?it/s]
+frame loading (JPEG):   3%|▎         | 6/200 [00:00<00:03, 55.97it/s]
+frame loading (JPEG):   6%|▌         | 12/200 [00:00<00:03, 57.73it/s]
+frame loading (JPEG):  10%|▉         | 19/200 [00:00<00:03, 59.64it/s]
+frame loading (JPEG):  12%|█▎        | 25/200 [00:00<00:02, 59.61it/s]
+frame loading (JPEG):  16%|█▌        | 31/200 [00:00<00:02, 57.78it/s]
+frame loading (JPEG):  18%|█▊        | 37/200 [00:00<00:02, 56.01it/s]
+frame loading (JPEG):  22%|██▏       | 43/200 [00:00<00:02, 55.18it/s]
+frame loading (JPEG):  24%|██▍       | 49/200 [00:00<00:02, 54.27it/s]
+frame loading (JPEG):  28%|██▊       | 55/200 [00:00<00:02, 54.38it/s]
+frame loading (JPEG):  30%|███       | 61/200 [00:01<00:02, 53.62it/s]
+frame loading (JPEG):  34%|███▎      | 67/200 [00:01<00:02, 53.26it/s]
+frame loading (JPEG):  36%|███▋      | 73/200 [00:01<00:02, 53.98it/s]
+frame loading (JPEG):  40%|███▉      | 79/200 [00:01<00:02, 53.38it/s]
+frame loading (JPEG):  42%|████▎     | 85/200 [00:01<00:02, 53.43it/s]
+frame loading (JPEG):  46%|████▌     | 91/200 [00:01<00:01, 55.21it/s]
+frame loading (JPEG):  48%|████▊     | 97/200 [00:01<00:01, 56.09it/s]
+frame loading (JPEG):  52%|█████▏    | 104/200 [00:01<00:01, 58.99it/s]
+frame loading (JPEG):  56%|█████▌    | 111/200 [00:01<00:01, 60.88it/s]
+frame loading (JPEG):  59%|█████▉    | 118/200 [00:02<00:01, 61.69it/s]
+frame loading (JPEG):  62%|██████▎   | 125/200 [00:02<00:01, 61.27it/s]
+frame loading (JPEG):  66%|██████▌   | 132/200 [00:02<00:01, 59.16it/s]
+frame loading (JPEG):  70%|██████▉   | 139/200 [00:02<00:01, 59.56it/s]
+frame loading (JPEG):  73%|███████▎  | 146/200 [00:02<00:00, 59.73it/s]
+frame loading (JPEG):  76%|███████▌  | 152/200 [00:02<00:00, 59.60it/s]
+frame loading (JPEG):  79%|███████▉  | 158/200 [00:02<00:00, 58.70it/s]
+frame loading (JPEG):  82%|████████▏ | 164/200 [00:02<00:00, 55.88it/s]
+frame loading (JPEG):  85%|████████▌ | 170/200 [00:03<00:00, 50.94it/s]
+frame loading (JPEG):  88%|████████▊ | 176/200 [00:03<00:00, 45.53it/s]
+frame loading (JPEG):  90%|█████████ | 181/200 [00:03<00:00, 44.75it/s]
+frame loading (JPEG):  93%|█████████▎| 186/200 [00:03<00:00, 43.69it/s]
+frame loading (JPEG):  96%|█████████▌| 191/200 [00:03<00:00, 42.78it/s]
+frame loading (JPEG):  98%|█████████▊| 196/200 [00:03<00:00, 40.99it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:03<00:00, 52.75it/s]
+E:\RocketAttitudeEstimation\third_party\sam2\sam2\sam2_video_predictor.py:786: UserWarning: cannot import name '_C' from 'sam2' (E:\RocketAttitudeEstimation\third_party\sam2\sam2\__init__.py)
+
+Skipping the post-processing step due to the error above. You can still use SAM 2 and it's OK to ignore the error above, although some post-processing functionality may be limited (which doesn't affect the results in most cases; see https://github.com/facebookresearch/sam2/blob/main/INSTALL.md).
+  pred_masks_gpu = fill_holes_in_mask_scores(
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 3/200 [00:00<00:09, 21.01it/s]
+propagate in video:   2%|▏         | 3/200 [00:00<00:14, 13.99it/s]
+      [重锚定 #1] 局部 1 (全局 1)
+
+propagate in video:   0%|          | 0/199 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/199 [00:00<00:14, 13.58it/s]
+      [重锚定 #2] 局部 7 (全局 7)
+
+propagate in video:   0%|          | 0/193 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 3/193 [00:00<00:06, 28.20it/s]
+propagate in video:   2%|▏         | 3/193 [00:00<00:09, 20.68it/s]
+      [重锚定 #3] 局部 8 (全局 8)
+
+propagate in video:   0%|          | 0/192 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/192 [00:00<00:08, 22.23it/s]
+      [重锚定 #4] 局部 14 (全局 14)
+
+propagate in video:   0%|          | 0/186 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 3/186 [00:00<00:06, 26.23it/s]
+      [重锚定 #5] 局部 15 (全局 15)
+
+propagate in video:   0%|          | 0/185 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/185 [00:00<00:09, 19.78it/s]
+      [重锚定 #6] 局部 21 (全局 21)
+
+propagate in video:   0%|          | 0/179 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 4/179 [00:00<00:06, 27.69it/s]
+propagate in video:   4%|▍         | 7/179 [00:00<00:06, 27.36it/s]
+propagate in video:   6%|▌         | 10/179 [00:00<00:06, 24.86it/s]
+propagate in video:   7%|▋         | 13/179 [00:00<00:06, 25.08it/s]
+propagate in video:   8%|▊         | 15/179 [00:00<00:06, 23.54it/s]
+      [重锚定 #7] 局部 34 (全局 34)
+
+propagate in video:   0%|          | 0/166 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/166 [00:00<00:06, 23.74it/s]
+      [重锚定 #8] 局部 40 (全局 40)
+
+propagate in video:   0%|          | 0/160 [00:00<?, ?it/s]
+propagate in video:   2%|▎         | 4/160 [00:00<00:05, 27.61it/s]
+propagate in video:   4%|▍         | 7/160 [00:00<00:05, 27.08it/s]
+propagate in video:   6%|▌         | 9/160 [00:00<00:06, 24.72it/s]
+    完成 38 帧, 可信 20, 重锚定 8  [RAM 1.67GB  VRAM 271MB]
+[块 200-400) 200 帧, 有框 200  [RAM 1.67GB  VRAM 271MB]
+
+frame loading (JPEG):   0%|          | 0/200 [00:00<?, ?it/s]
+frame loading (JPEG):   3%|▎         | 6/200 [00:00<00:03, 57.73it/s]
+frame loading (JPEG):   6%|▌         | 12/200 [00:00<00:03, 56.79it/s]
+frame loading (JPEG):   9%|▉         | 18/200 [00:00<00:03, 51.70it/s]
+frame loading (JPEG):  12%|█▏        | 24/200 [00:00<00:03, 46.88it/s]
+frame loading (JPEG):  14%|█▍        | 29/200 [00:00<00:03, 44.01it/s]
+frame loading (JPEG):  17%|█▋        | 34/200 [00:00<00:03, 43.31it/s]
+frame loading (JPEG):  20%|█▉        | 39/200 [00:00<00:03, 42.79it/s]
+frame loading (JPEG):  22%|██▏       | 44/200 [00:00<00:03, 42.27it/s]
+frame loading (JPEG):  24%|██▍       | 49/200 [00:01<00:03, 41.68it/s]
+frame loading (JPEG):  27%|██▋       | 54/200 [00:01<00:03, 41.33it/s]
+frame loading (JPEG):  30%|██▉       | 59/200 [00:01<00:03, 41.62it/s]
+frame loading (JPEG):  32%|███▏      | 64/200 [00:01<00:03, 40.17it/s]
+frame loading (JPEG):  34%|███▍      | 69/200 [00:01<00:03, 38.09it/s]
+frame loading (JPEG):  36%|███▋      | 73/200 [00:01<00:03, 37.47it/s]
+frame loading (JPEG):  38%|███▊      | 77/200 [00:01<00:03, 37.57it/s]
+frame loading (JPEG):  41%|████      | 82/200 [00:01<00:02, 39.97it/s]
+frame loading (JPEG):  44%|████▎     | 87/200 [00:02<00:02, 39.04it/s]
+frame loading (JPEG):  46%|████▌     | 92/200 [00:02<00:02, 40.39it/s]
+frame loading (JPEG):  48%|████▊     | 97/200 [00:02<00:02, 40.19it/s]
+frame loading (JPEG):  51%|█████     | 102/200 [00:02<00:02, 40.63it/s]
+frame loading (JPEG):  54%|█████▎    | 107/200 [00:02<00:02, 40.29it/s]
+frame loading (JPEG):  56%|█████▌    | 112/200 [00:02<00:02, 40.01it/s]
+frame loading (JPEG):  58%|█████▊    | 117/200 [00:02<00:02, 39.69it/s]
+frame loading (JPEG):  61%|██████    | 122/200 [00:02<00:01, 39.90it/s]
+frame loading (JPEG):  64%|██████▎   | 127/200 [00:03<00:01, 39.90it/s]
+frame loading (JPEG):  66%|██████▌   | 131/200 [00:03<00:01, 39.35it/s]
+frame loading (JPEG):  68%|██████▊   | 135/200 [00:03<00:01, 39.41it/s]
+frame loading (JPEG):  70%|███████   | 140/200 [00:03<00:01, 40.33it/s]
+frame loading (JPEG):  72%|███████▎  | 145/200 [00:03<00:01, 39.92it/s]
+frame loading (JPEG):  74%|███████▍  | 149/200 [00:03<00:01, 39.63it/s]
+frame loading (JPEG):  77%|███████▋  | 154/200 [00:03<00:01, 40.38it/s]
+frame loading (JPEG):  80%|███████▉  | 159/200 [00:03<00:01, 39.85it/s]
+frame loading (JPEG):  82%|████████▏ | 163/200 [00:03<00:00, 37.81it/s]
+frame loading (JPEG):  84%|████████▎ | 167/200 [00:04<00:00, 38.06it/s]
+frame loading (JPEG):  86%|████████▌ | 171/200 [00:04<00:00, 37.56it/s]
+frame loading (JPEG):  88%|████████▊ | 176/200 [00:04<00:00, 39.24it/s]
+frame loading (JPEG):  90%|█████████ | 181/200 [00:04<00:00, 39.88it/s]
+frame loading (JPEG):  92%|█████████▎| 185/200 [00:04<00:00, 39.31it/s]
+frame loading (JPEG):  95%|█████████▌| 190/200 [00:04<00:00, 40.11it/s]
+frame loading (JPEG):  98%|█████████▊| 195/200 [00:04<00:00, 39.02it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:04<00:00, 40.08it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:04<00:00, 40.59it/s]
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 3/200 [00:00<00:07, 24.65it/s]
+propagate in video:   3%|▎         | 6/200 [00:00<00:09, 21.31it/s]
+propagate in video:   5%|▌         | 10/200 [00:00<00:07, 25.92it/s]
+propagate in video:   6%|▋         | 13/200 [00:00<00:07, 25.14it/s]
+propagate in video:   8%|▊         | 16/200 [00:00<00:07, 25.17it/s]
+propagate in video:  10%|▉         | 19/200 [00:00<00:07, 25.22it/s]
+propagate in video:  11%|█         | 22/200 [00:00<00:07, 24.99it/s]
+propagate in video:  12%|█▎        | 25/200 [00:00<00:06, 25.55it/s]
+propagate in video:  14%|█▍        | 28/200 [00:01<00:07, 24.06it/s]
+propagate in video:  16%|█▌        | 31/200 [00:01<00:07, 23.45it/s]
+propagate in video:  17%|█▋        | 34/200 [00:01<00:06, 24.86it/s]
+propagate in video:  18%|█▊        | 37/200 [00:01<00:06, 25.38it/s]
+propagate in video:  20%|██        | 41/200 [00:01<00:05, 26.76it/s]
+propagate in video:  22%|██▎       | 45/200 [00:01<00:05, 28.24it/s]
+propagate in video:  24%|██▍       | 48/200 [00:01<00:05, 28.37it/s]
+propagate in video:  26%|██▌       | 52/200 [00:01<00:04, 30.67it/s]
+propagate in video:  28%|██▊       | 56/200 [00:02<00:04, 29.57it/s]
+propagate in video:  30%|██▉       | 59/200 [00:02<00:04, 28.64it/s]
+propagate in video:  31%|███       | 62/200 [00:02<00:05, 26.50it/s]
+propagate in video:  33%|███▎      | 66/200 [00:02<00:04, 27.18it/s]
+propagate in video:  34%|███▍      | 69/200 [00:02<00:04, 27.09it/s]
+propagate in video:  36%|███▌      | 72/200 [00:02<00:04, 26.98it/s]
+propagate in video:  38%|███▊      | 75/200 [00:02<00:04, 27.36it/s]
+propagate in video:  39%|███▉      | 78/200 [00:02<00:04, 26.74it/s]
+propagate in video:  41%|████      | 82/200 [00:03<00:04, 28.55it/s]
+propagate in video:  42%|████▎     | 85/200 [00:03<00:04, 28.61it/s]
+propagate in video:  44%|████▍     | 89/200 [00:03<00:03, 30.64it/s]
+propagate in video:  46%|████▋     | 93/200 [00:03<00:03, 27.58it/s]
+propagate in video:  48%|████▊     | 96/200 [00:03<00:03, 27.73it/s]
+propagate in video:  50%|████▉     | 99/200 [00:03<00:03, 27.67it/s]
+propagate in video:  51%|█████     | 102/200 [00:03<00:03, 27.89it/s]
+propagate in video:  53%|█████▎    | 106/200 [00:03<00:03, 30.46it/s]
+propagate in video:  55%|█████▌    | 110/200 [00:04<00:02, 30.51it/s]
+propagate in video:  55%|█████▌    | 110/200 [00:04<00:03, 26.93it/s]
+      [重锚定 #1] 局部 108 (全局 308)
+
+propagate in video:   0%|          | 0/92 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 2/92 [00:00<00:03, 29.58it/s]
+      [重锚定 #2] 局部 114 (全局 314)
+
+propagate in video:   0%|          | 0/86 [00:00<?, ?it/s]
+propagate in video:   5%|▍         | 4/86 [00:00<00:02, 32.55it/s]
+propagate in video:   9%|▉         | 8/86 [00:00<00:02, 29.59it/s]
+propagate in video:  12%|█▏        | 10/86 [00:00<00:03, 25.07it/s]
+      [重锚定 #3] 局部 122 (全局 322)
+
+propagate in video:   0%|          | 0/78 [00:00<?, ?it/s]
+propagate in video:   3%|▎         | 2/78 [00:00<00:03, 19.99it/s]
+      [重锚定 #4] 局部 128 (全局 328)
+
+propagate in video:   0%|          | 0/72 [00:00<?, ?it/s]
+propagate in video:   6%|▌         | 4/72 [00:00<00:02, 32.93it/s]
+propagate in video:  11%|█         | 8/72 [00:00<00:02, 28.19it/s]
+propagate in video:  17%|█▋        | 12/72 [00:00<00:01, 30.94it/s]
+propagate in video:  22%|██▏       | 16/72 [00:00<00:02, 27.30it/s]
+propagate in video:  22%|██▏       | 16/72 [00:00<00:02, 26.09it/s]
+      [重锚定 #5] 局部 142 (全局 342)
+
+propagate in video:   0%|          | 0/58 [00:00<?, ?it/s]
+propagate in video:   3%|▎         | 2/58 [00:00<00:01, 32.38it/s]
+      [重锚定 #6] 局部 148 (全局 348)
+
+propagate in video:   0%|          | 0/52 [00:00<?, ?it/s]
+propagate in video:   8%|▊         | 4/52 [00:00<00:01, 32.92it/s]
+propagate in video:  15%|█▌        | 8/52 [00:00<00:01, 28.45it/s]
+propagate in video:  21%|██        | 11/52 [00:00<00:01, 28.96it/s]
+propagate in video:  29%|██▉       | 15/52 [00:00<00:01, 31.22it/s]
+propagate in video:  37%|███▋      | 19/52 [00:00<00:01, 27.66it/s]
+propagate in video:  42%|████▏     | 22/52 [00:00<00:01, 26.72it/s]
+propagate in video:  50%|█████     | 26/52 [00:00<00:00, 29.59it/s]
+propagate in video:  56%|█████▌    | 29/52 [00:01<00:00, 27.16it/s]
+      [重锚定 #7] 局部 175 (全局 375)
+
+propagate in video:   0%|          | 0/25 [00:00<?, ?it/s]
+propagate in video:   8%|▊         | 2/25 [00:00<00:01, 20.81it/s]
+      [重锚定 #8] 局部 181 (全局 381)
+
+propagate in video:   0%|          | 0/19 [00:00<?, ?it/s]
+propagate in video:  11%|█         | 2/19 [00:00<00:00, 20.39it/s]
+    完成 172 帧, 可信 155, 重锚定 8  [RAM 2.26GB  VRAM 271MB]
+[块 400-600) 200 帧, 有框 200  [RAM 2.26GB  VRAM 271MB]
+
+frame loading (JPEG):   0%|          | 0/200 [00:00<?, ?it/s]
+frame loading (JPEG):   3%|▎         | 6/200 [00:00<00:03, 56.70it/s]
+frame loading (JPEG):   6%|▌         | 12/200 [00:00<00:03, 56.77it/s]
+frame loading (JPEG):   9%|▉         | 18/200 [00:00<00:03, 54.73it/s]
+frame loading (JPEG):  12%|█▏        | 24/200 [00:00<00:03, 54.57it/s]
+frame loading (JPEG):  15%|█▌        | 30/200 [00:00<00:03, 53.65it/s]
+frame loading (JPEG):  18%|█▊        | 36/200 [00:00<00:02, 55.36it/s]
+frame loading (JPEG):  21%|██        | 42/200 [00:00<00:02, 55.39it/s]
+frame loading (JPEG):  24%|██▍       | 48/200 [00:00<00:02, 56.26it/s]
+frame loading (JPEG):  27%|██▋       | 54/200 [00:00<00:02, 56.38it/s]
+frame loading (JPEG):  30%|███       | 60/200 [00:01<00:02, 51.83it/s]
+frame loading (JPEG):  33%|███▎      | 66/200 [00:01<00:02, 46.71it/s]
+frame loading (JPEG):  36%|███▌      | 71/200 [00:01<00:02, 44.42it/s]
+frame loading (JPEG):  38%|███▊      | 76/200 [00:01<00:03, 41.02it/s]
+frame loading (JPEG):  40%|████      | 81/200 [00:01<00:02, 40.16it/s]
+frame loading (JPEG):  43%|████▎     | 86/200 [00:01<00:02, 38.45it/s]
+frame loading (JPEG):  45%|████▌     | 90/200 [00:01<00:03, 36.14it/s]
+frame loading (JPEG):  47%|████▋     | 94/200 [00:02<00:03, 34.94it/s]
+frame loading (JPEG):  49%|████▉     | 98/200 [00:02<00:02, 35.81it/s]
+frame loading (JPEG):  52%|█████▏    | 103/200 [00:02<00:02, 37.37it/s]
+frame loading (JPEG):  54%|█████▍    | 108/200 [00:02<00:02, 39.04it/s]
+frame loading (JPEG):  56%|█████▋    | 113/200 [00:02<00:02, 40.43it/s]
+frame loading (JPEG):  59%|█████▉    | 118/200 [00:02<00:02, 40.51it/s]
+frame loading (JPEG):  62%|██████▏   | 123/200 [00:02<00:01, 39.28it/s]
+frame loading (JPEG):  64%|██████▍   | 128/200 [00:02<00:01, 40.56it/s]
+frame loading (JPEG):  66%|██████▋   | 133/200 [00:03<00:01, 40.63it/s]
+frame loading (JPEG):  69%|██████▉   | 138/200 [00:03<00:01, 41.66it/s]
+frame loading (JPEG):  72%|███████▏  | 143/200 [00:03<00:01, 41.48it/s]
+frame loading (JPEG):  74%|███████▍  | 148/200 [00:03<00:01, 40.86it/s]
+frame loading (JPEG):  76%|███████▋  | 153/200 [00:03<00:01, 41.52it/s]
+frame loading (JPEG):  79%|███████▉  | 158/200 [00:03<00:01, 40.13it/s]
+frame loading (JPEG):  82%|████████▏ | 163/200 [00:03<00:00, 41.51it/s]
+frame loading (JPEG):  84%|████████▍ | 168/200 [00:03<00:00, 40.74it/s]
+frame loading (JPEG):  86%|████████▋ | 173/200 [00:04<00:00, 39.47it/s]
+frame loading (JPEG):  88%|████████▊ | 177/200 [00:04<00:00, 39.47it/s]
+frame loading (JPEG):  91%|█████████ | 182/200 [00:04<00:00, 41.49it/s]
+frame loading (JPEG):  94%|█████████▎| 187/200 [00:04<00:00, 41.52it/s]
+frame loading (JPEG):  96%|█████████▌| 192/200 [00:04<00:00, 40.84it/s]
+frame loading (JPEG):  98%|█████████▊| 197/200 [00:04<00:00, 41.65it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:04<00:00, 42.94it/s]
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 3/200 [00:00<00:09, 21.43it/s]
+propagate in video:   3%|▎         | 6/200 [00:00<00:10, 18.12it/s]
+propagate in video:   4%|▍         | 9/200 [00:00<00:08, 21.92it/s]
+propagate in video:   6%|▌         | 12/200 [00:00<00:07, 23.53it/s]
+propagate in video:   8%|▊         | 15/200 [00:00<00:07, 24.07it/s]
+propagate in video:   9%|▉         | 18/200 [00:00<00:07, 24.97it/s]
+propagate in video:  12%|█▏        | 23/200 [00:00<00:05, 29.54it/s]
+propagate in video:  13%|█▎        | 26/200 [00:01<00:06, 27.00it/s]
+propagate in video:  15%|█▌        | 30/200 [00:01<00:06, 27.37it/s]
+propagate in video:  16%|█▋        | 33/200 [00:01<00:06, 27.27it/s]
+propagate in video:  18%|█▊        | 36/200 [00:01<00:06, 27.19it/s]
+propagate in video:  20%|██        | 41/200 [00:01<00:04, 31.89it/s]
+propagate in video:  22%|██▎       | 45/200 [00:01<00:04, 31.12it/s]
+propagate in video:  24%|██▍       | 49/200 [00:01<00:05, 29.95it/s]
+propagate in video:  26%|██▋       | 53/200 [00:01<00:05, 28.99it/s]
+propagate in video:  28%|██▊       | 56/200 [00:02<00:05, 28.26it/s]
+propagate in video:  30%|███       | 61/200 [00:02<00:04, 31.43it/s]
+propagate in video:  32%|███▎      | 65/200 [00:02<00:04, 30.01it/s]
+propagate in video:  34%|███▍      | 69/200 [00:02<00:04, 28.95it/s]
+propagate in video:  36%|███▋      | 73/200 [00:02<00:04, 30.63it/s]
+propagate in video:  38%|███▊      | 77/200 [00:02<00:04, 28.40it/s]
+propagate in video:  40%|████      | 80/200 [00:02<00:04, 28.35it/s]
+propagate in video:  42%|████▏     | 84/200 [00:03<00:04, 28.96it/s]
+propagate in video:  44%|████▎     | 87/200 [00:03<00:03, 28.27it/s]
+propagate in video:  46%|████▌     | 91/200 [00:03<00:03, 29.18it/s]
+propagate in video:  47%|████▋     | 94/200 [00:03<00:03, 28.98it/s]
+propagate in video:  47%|████▋     | 94/200 [00:03<00:03, 27.69it/s]
+      [重锚定 #1] 局部 92 (全局 492)
+
+propagate in video:   0%|          | 0/108 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 2/108 [00:00<00:03, 28.06it/s]
+      [重锚定 #2] 局部 98 (全局 498)
+
+propagate in video:   0%|          | 0/102 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 2/102 [00:00<00:04, 21.00it/s]
+      [重锚定 #3] 局部 98 (全局 498)
+
+propagate in video:   0%|          | 0/102 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 2/102 [00:00<00:05, 18.95it/s]
+      [重锚定 #4] 局部 104 (全局 504)
+
+propagate in video:   0%|          | 0/96 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 2/96 [00:00<00:04, 20.54it/s]
+      [重锚定 #5] 局部 104 (全局 504)
+
+propagate in video:   0%|          | 0/96 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 2/96 [00:00<00:03, 31.20it/s]
+      [重锚定 #6] 局部 110 (全局 510)
+
+propagate in video:   0%|          | 0/90 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 2/90 [00:00<00:02, 33.50it/s]
+      [重锚定 #7] 局部 110 (全局 510)
+
+propagate in video:   0%|          | 0/90 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 2/90 [00:00<00:03, 28.10it/s]
+      [重锚定 #8] 局部 116 (全局 516)
+
+propagate in video:   0%|          | 0/84 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 2/84 [00:00<00:03, 23.02it/s]
+    完成 107 帧, 可信 92, 重锚定 5  [RAM 1.67GB  VRAM 271MB]
+[块 600-800) 200 帧, 有框 158  [RAM 1.67GB  VRAM 271MB]
+
+frame loading (JPEG):   0%|          | 0/200 [00:00<?, ?it/s]
+frame loading (JPEG):   3%|▎         | 6/200 [00:00<00:03, 54.00it/s]
+frame loading (JPEG):   6%|▌         | 12/200 [00:00<00:03, 56.51it/s]
+frame loading (JPEG):  10%|▉         | 19/200 [00:00<00:03, 59.57it/s]
+frame loading (JPEG):  12%|█▎        | 25/200 [00:00<00:02, 58.71it/s]
+frame loading (JPEG):  16%|█▌        | 31/200 [00:00<00:03, 51.62it/s]
+frame loading (JPEG):  18%|█▊        | 37/200 [00:00<00:03, 46.87it/s]
+frame loading (JPEG):  21%|██        | 42/200 [00:00<00:03, 44.36it/s]
+frame loading (JPEG):  24%|██▎       | 47/200 [00:00<00:03, 43.11it/s]
+frame loading (JPEG):  26%|██▌       | 52/200 [00:01<00:03, 42.19it/s]
+frame loading (JPEG):  28%|██▊       | 57/200 [00:01<00:03, 41.83it/s]
+frame loading (JPEG):  31%|███       | 62/200 [00:01<00:03, 41.24it/s]
+frame loading (JPEG):  34%|███▎      | 67/200 [00:01<00:03, 40.02it/s]
+frame loading (JPEG):  36%|███▌      | 72/200 [00:01<00:03, 39.19it/s]
+frame loading (JPEG):  38%|███▊      | 76/200 [00:01<00:03, 38.82it/s]
+frame loading (JPEG):  40%|████      | 80/200 [00:01<00:03, 37.98it/s]
+frame loading (JPEG):  42%|████▎     | 85/200 [00:01<00:03, 38.06it/s]
+frame loading (JPEG):  44%|████▍     | 89/200 [00:02<00:02, 37.56it/s]
+frame loading (JPEG):  46%|████▋     | 93/200 [00:02<00:02, 37.63it/s]
+frame loading (JPEG):  49%|████▉     | 98/200 [00:02<00:02, 38.64it/s]
+frame loading (JPEG):  51%|█████     | 102/200 [00:02<00:02, 38.51it/s]
+frame loading (JPEG):  53%|█████▎    | 106/200 [00:02<00:02, 37.71it/s]
+frame loading (JPEG):  55%|█████▌    | 110/200 [00:02<00:02, 36.51it/s]
+frame loading (JPEG):  57%|█████▋    | 114/200 [00:02<00:02, 35.58it/s]
+frame loading (JPEG):  59%|█████▉    | 118/200 [00:02<00:02, 34.02it/s]
+frame loading (JPEG):  61%|██████    | 122/200 [00:02<00:02, 35.42it/s]
+frame loading (JPEG):  64%|██████▎   | 127/200 [00:03<00:01, 36.86it/s]
+frame loading (JPEG):  66%|██████▌   | 132/200 [00:03<00:01, 38.51it/s]
+frame loading (JPEG):  68%|██████▊   | 137/200 [00:03<00:01, 40.55it/s]
+frame loading (JPEG):  71%|███████   | 142/200 [00:03<00:01, 39.93it/s]
+frame loading (JPEG):  74%|███████▎  | 147/200 [00:03<00:01, 40.98it/s]
+frame loading (JPEG):  76%|███████▌  | 152/200 [00:03<00:01, 40.52it/s]
+frame loading (JPEG):  78%|███████▊  | 157/200 [00:03<00:01, 39.89it/s]
+frame loading (JPEG):  81%|████████  | 162/200 [00:03<00:00, 40.21it/s]
+frame loading (JPEG):  84%|████████▎ | 167/200 [00:04<00:00, 39.26it/s]
+frame loading (JPEG):  86%|████████▌ | 172/200 [00:04<00:00, 40.27it/s]
+frame loading (JPEG):  88%|████████▊ | 177/200 [00:04<00:00, 41.15it/s]
+frame loading (JPEG):  91%|█████████ | 182/200 [00:04<00:00, 41.00it/s]
+frame loading (JPEG):  94%|█████████▎| 187/200 [00:04<00:00, 38.93it/s]
+frame loading (JPEG):  96%|█████████▌| 191/200 [00:04<00:00, 37.32it/s]
+frame loading (JPEG):  98%|█████████▊| 195/200 [00:04<00:00, 37.05it/s]
+frame loading (JPEG): 100%|█████████▉| 199/200 [00:04<00:00, 37.56it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:04<00:00, 40.40it/s]
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/200 [00:00<00:13, 14.97it/s]
+      [重锚定 #1] 局部 0 (全局 600)
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/200 [00:00<00:06, 28.46it/s]
+      [重锚定 #2] 局部 6 (全局 606)
+
+propagate in video:   0%|          | 0/194 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 3/194 [00:00<00:06, 31.68it/s]
+      [重锚定 #3] 局部 7 (全局 607)
+
+propagate in video:   0%|          | 0/193 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/193 [00:00<00:09, 19.98it/s]
+      [重锚定 #4] 局部 13 (全局 613)
+
+propagate in video:   0%|          | 0/187 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/187 [00:00<00:06, 27.82it/s]
+      [重锚定 #5] 局部 13 (全局 613)
+
+propagate in video:   0%|          | 0/187 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/187 [00:00<00:04, 40.63it/s]
+      [重锚定 #6] 局部 19 (全局 619)
+
+propagate in video:   0%|          | 0/181 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 3/181 [00:00<00:05, 29.72it/s]
+      [重锚定 #7] 局部 20 (全局 620)
+
+propagate in video:   0%|          | 0/180 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/180 [00:00<00:05, 34.11it/s]
+      [重锚定 #8] 局部 26 (全局 626)
+
+propagate in video:   0%|          | 0/174 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/174 [00:00<00:07, 22.00it/s]
+    完成 17 帧, 可信 2, 重锚定 7  [RAM 2.26GB  VRAM 271MB]
+[块 800-1000) 200 帧, 有框 200  [RAM 2.26GB  VRAM 271MB]
+
+frame loading (JPEG):   0%|          | 0/200 [00:00<?, ?it/s]
+frame loading (JPEG):   3%|▎         | 6/200 [00:00<00:03, 52.49it/s]
+frame loading (JPEG):   6%|▌         | 12/200 [00:00<00:04, 41.75it/s]
+frame loading (JPEG):   8%|▊         | 17/200 [00:00<00:04, 39.32it/s]
+frame loading (JPEG):  11%|█         | 22/200 [00:00<00:04, 39.20it/s]
+frame loading (JPEG):  13%|█▎        | 26/200 [00:00<00:04, 39.13it/s]
+frame loading (JPEG):  15%|█▌        | 30/200 [00:00<00:04, 38.32it/s]
+frame loading (JPEG):  17%|█▋        | 34/200 [00:00<00:04, 38.11it/s]
+frame loading (JPEG):  20%|█▉        | 39/200 [00:00<00:04, 38.30it/s]
+frame loading (JPEG):  22%|██▏       | 44/200 [00:01<00:03, 39.09it/s]
+frame loading (JPEG):  24%|██▍       | 48/200 [00:01<00:04, 37.86it/s]
+frame loading (JPEG):  26%|██▋       | 53/200 [00:01<00:03, 38.56it/s]
+frame loading (JPEG):  28%|██▊       | 57/200 [00:01<00:03, 38.69it/s]
+frame loading (JPEG):  30%|███       | 61/200 [00:01<00:03, 38.30it/s]
+frame loading (JPEG):  32%|███▎      | 65/200 [00:01<00:03, 37.88it/s]
+frame loading (JPEG):  35%|███▌      | 70/200 [00:01<00:03, 38.36it/s]
+frame loading (JPEG):  37%|███▋      | 74/200 [00:01<00:03, 38.13it/s]
+frame loading (JPEG):  40%|███▉      | 79/200 [00:02<00:03, 38.60it/s]
+frame loading (JPEG):  42%|████▏     | 83/200 [00:02<00:03, 38.79it/s]
+frame loading (JPEG):  44%|████▎     | 87/200 [00:02<00:02, 38.22it/s]
+frame loading (JPEG):  46%|████▌     | 91/200 [00:02<00:02, 38.19it/s]
+frame loading (JPEG):  48%|████▊     | 95/200 [00:02<00:02, 37.72it/s]
+frame loading (JPEG):  50%|████▉     | 99/200 [00:02<00:02, 37.24it/s]
+frame loading (JPEG):  52%|█████▏    | 104/200 [00:02<00:02, 38.37it/s]
+frame loading (JPEG):  54%|█████▍    | 108/200 [00:02<00:02, 38.12it/s]
+frame loading (JPEG):  56%|█████▌    | 112/200 [00:02<00:02, 38.63it/s]
+frame loading (JPEG):  58%|█████▊    | 116/200 [00:02<00:02, 39.00it/s]
+frame loading (JPEG):  60%|██████    | 121/200 [00:03<00:02, 39.28it/s]
+frame loading (JPEG):  63%|██████▎   | 126/200 [00:03<00:01, 39.76it/s]
+frame loading (JPEG):  66%|██████▌   | 131/200 [00:03<00:01, 40.11it/s]
+frame loading (JPEG):  68%|██████▊   | 136/200 [00:03<00:01, 38.84it/s]
+frame loading (JPEG):  70%|███████   | 141/200 [00:03<00:01, 40.16it/s]
+frame loading (JPEG):  73%|███████▎  | 146/200 [00:03<00:01, 40.40it/s]
+frame loading (JPEG):  76%|███████▌  | 151/200 [00:03<00:01, 40.59it/s]
+frame loading (JPEG):  78%|███████▊  | 156/200 [00:03<00:01, 42.22it/s]
+frame loading (JPEG):  80%|████████  | 161/200 [00:04<00:00, 42.59it/s]
+frame loading (JPEG):  83%|████████▎ | 166/200 [00:04<00:00, 41.12it/s]
+frame loading (JPEG):  86%|████████▌ | 171/200 [00:04<00:00, 42.05it/s]
+frame loading (JPEG):  88%|████████▊ | 176/200 [00:04<00:00, 41.65it/s]
+frame loading (JPEG):  90%|█████████ | 181/200 [00:04<00:00, 41.14it/s]
+frame loading (JPEG):  93%|█████████▎| 186/200 [00:04<00:00, 41.25it/s]
+frame loading (JPEG):  96%|█████████▌| 191/200 [00:04<00:00, 40.90it/s]
+frame loading (JPEG):  98%|█████████▊| 196/200 [00:04<00:00, 41.53it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:05<00:00, 39.62it/s]
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/200 [00:00<00:16, 12.17it/s]
+      [重锚定 #1] 局部 0 (全局 800)
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/200 [00:00<00:10, 18.02it/s]
+      [重锚定 #2] 局部 6 (全局 806)
+
+propagate in video:   0%|          | 0/194 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/194 [00:00<00:07, 26.67it/s]
+      [重锚定 #3] 局部 6 (全局 806)
+
+propagate in video:   0%|          | 0/194 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/194 [00:00<00:08, 23.78it/s]
+      [重锚定 #4] 局部 12 (全局 812)
+
+propagate in video:   0%|          | 0/188 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/188 [00:00<00:08, 21.48it/s]
+      [重锚定 #5] 局部 12 (全局 812)
+
+propagate in video:   0%|          | 0/188 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/188 [00:00<00:09, 19.41it/s]
+      [重锚定 #6] 局部 18 (全局 818)
+
+propagate in video:   0%|          | 0/182 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/182 [00:00<00:08, 20.55it/s]
+      [重锚定 #7] 局部 18 (全局 818)
+
+propagate in video:   0%|          | 0/182 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/182 [00:00<00:05, 34.69it/s]
+      [重锚定 #8] 局部 24 (全局 824)
+
+propagate in video:   0%|          | 0/176 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/176 [00:00<00:07, 23.12it/s]
+    完成 15 帧, 可信 0, 重锚定 5  [RAM 1.68GB  VRAM 271MB]
+[块 1000-1200) 200 帧, 有框 200  [RAM 1.68GB  VRAM 271MB]
+
+frame loading (JPEG):   0%|          | 0/200 [00:00<?, ?it/s]
+frame loading (JPEG):   3%|▎         | 6/200 [00:00<00:03, 50.54it/s]
+frame loading (JPEG):   6%|▌         | 12/200 [00:00<00:04, 43.00it/s]
+frame loading (JPEG):   8%|▊         | 17/200 [00:00<00:04, 41.91it/s]
+frame loading (JPEG):  11%|█         | 22/200 [00:00<00:04, 38.97it/s]
+frame loading (JPEG):  14%|█▎        | 27/200 [00:00<00:04, 39.53it/s]
+frame loading (JPEG):  16%|█▌        | 31/200 [00:00<00:04, 38.54it/s]
+frame loading (JPEG):  18%|█▊        | 35/200 [00:00<00:04, 38.62it/s]
+frame loading (JPEG):  20%|██        | 40/200 [00:01<00:04, 39.13it/s]
+frame loading (JPEG):  22%|██▏       | 44/200 [00:01<00:03, 39.23it/s]
+frame loading (JPEG):  24%|██▍       | 48/200 [00:01<00:03, 38.57it/s]
+frame loading (JPEG):  26%|██▌       | 52/200 [00:01<00:03, 37.45it/s]
+frame loading (JPEG):  28%|██▊       | 57/200 [00:01<00:03, 39.08it/s]
+frame loading (JPEG):  31%|███       | 62/200 [00:01<00:03, 39.64it/s]
+frame loading (JPEG):  34%|███▎      | 67/200 [00:01<00:03, 40.86it/s]
+frame loading (JPEG):  36%|███▌      | 72/200 [00:01<00:03, 39.75it/s]
+frame loading (JPEG):  38%|███▊      | 76/200 [00:01<00:03, 38.06it/s]
+frame loading (JPEG):  40%|████      | 80/200 [00:02<00:03, 37.32it/s]
+frame loading (JPEG):  42%|████▏     | 84/200 [00:02<00:03, 37.66it/s]
+frame loading (JPEG):  44%|████▍     | 88/200 [00:02<00:03, 37.27it/s]
+frame loading (JPEG):  46%|████▋     | 93/200 [00:02<00:02, 38.49it/s]
+frame loading (JPEG):  49%|████▉     | 98/200 [00:02<00:02, 39.45it/s]
+frame loading (JPEG):  52%|█████▏    | 103/200 [00:02<00:02, 40.94it/s]
+frame loading (JPEG):  54%|█████▍    | 108/200 [00:02<00:02, 38.69it/s]
+frame loading (JPEG):  56%|█████▋    | 113/200 [00:02<00:02, 39.06it/s]
+frame loading (JPEG):  59%|█████▉    | 118/200 [00:02<00:02, 40.16it/s]
+frame loading (JPEG):  62%|██████▏   | 123/200 [00:03<00:01, 40.25it/s]
+frame loading (JPEG):  64%|██████▍   | 128/200 [00:03<00:01, 39.21it/s]
+frame loading (JPEG):  66%|██████▋   | 133/200 [00:03<00:01, 39.67it/s]
+frame loading (JPEG):  69%|██████▉   | 138/200 [00:03<00:01, 40.35it/s]
+frame loading (JPEG):  72%|███████▏  | 143/200 [00:03<00:01, 40.42it/s]
+frame loading (JPEG):  74%|███████▍  | 148/200 [00:03<00:01, 38.33it/s]
+frame loading (JPEG):  76%|███████▌  | 152/200 [00:03<00:01, 38.65it/s]
+frame loading (JPEG):  78%|███████▊  | 156/200 [00:03<00:01, 37.58it/s]
+frame loading (JPEG):  80%|████████  | 160/200 [00:04<00:01, 37.87it/s]
+frame loading (JPEG):  82%|████████▏ | 164/200 [00:04<00:00, 38.27it/s]
+frame loading (JPEG):  84%|████████▍ | 168/200 [00:04<00:00, 37.61it/s]
+frame loading (JPEG):  86%|████████▋ | 173/200 [00:04<00:00, 38.59it/s]
+frame loading (JPEG):  88%|████████▊ | 177/200 [00:04<00:00, 38.08it/s]
+frame loading (JPEG):  90%|█████████ | 181/200 [00:04<00:00, 37.06it/s]
+frame loading (JPEG):  93%|█████████▎| 186/200 [00:04<00:00, 38.69it/s]
+frame loading (JPEG):  96%|█████████▌| 191/200 [00:04<00:00, 39.35it/s]
+frame loading (JPEG):  98%|█████████▊| 196/200 [00:05<00:00, 39.73it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:05<00:00, 39.14it/s]
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 3/200 [00:00<00:09, 19.87it/s]
+propagate in video:   3%|▎         | 6/200 [00:00<00:09, 20.79it/s]
+propagate in video:   4%|▍         | 9/200 [00:00<00:08, 21.96it/s]
+propagate in video:   5%|▌         | 10/200 [00:00<00:09, 19.98it/s]
+      [重锚定 #1] 局部 8 (全局 1008)
+
+propagate in video:   0%|          | 0/192 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/192 [00:00<00:10, 18.22it/s]
+      [重锚定 #2] 局部 14 (全局 1014)
+
+propagate in video:   0%|          | 0/186 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/186 [00:00<00:09, 20.00it/s]
+      [重锚定 #3] 局部 14 (全局 1014)
+
+propagate in video:   0%|          | 0/186 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/186 [00:00<00:07, 25.52it/s]
+      [重锚定 #4] 局部 20 (全局 1020)
+
+propagate in video:   0%|          | 0/180 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/180 [00:00<00:06, 27.77it/s]
+      [重锚定 #5] 局部 20 (全局 1020)
+
+propagate in video:   0%|          | 0/180 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/180 [00:00<00:09, 19.70it/s]
+      [重锚定 #6] 局部 26 (全局 1026)
+
+propagate in video:   0%|          | 0/174 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/174 [00:00<00:08, 20.03it/s]
+      [重锚定 #7] 局部 26 (全局 1026)
+
+propagate in video:   0%|          | 0/174 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/174 [00:00<00:07, 21.58it/s]
+      [重锚定 #8] 局部 32 (全局 1032)
+
+propagate in video:   0%|          | 0/168 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 4/168 [00:00<00:05, 30.96it/s]
+propagate in video:   4%|▎         | 6/168 [00:00<00:05, 29.01it/s]
+    完成 27 帧, 可信 12, 重锚定 5  [RAM 2.26GB  VRAM 271MB]
+[块 1200-1400) 200 帧, 有框 200  [RAM 2.26GB  VRAM 271MB]
+
+frame loading (JPEG):   0%|          | 0/200 [00:00<?, ?it/s]
+frame loading (JPEG):   4%|▎         | 7/200 [00:00<00:03, 61.92it/s]
+frame loading (JPEG):   7%|▋         | 14/200 [00:00<00:03, 57.09it/s]
+frame loading (JPEG):  10%|█         | 20/200 [00:00<00:03, 47.85it/s]
+frame loading (JPEG):  12%|█▎        | 25/200 [00:00<00:03, 44.95it/s]
+frame loading (JPEG):  15%|█▌        | 30/200 [00:00<00:04, 42.27it/s]
+frame loading (JPEG):  18%|█▊        | 35/200 [00:00<00:04, 39.65it/s]
+frame loading (JPEG):  20%|██        | 40/200 [00:00<00:04, 37.62it/s]
+frame loading (JPEG):  22%|██▏       | 44/200 [00:01<00:04, 37.53it/s]
+frame loading (JPEG):  24%|██▍       | 48/200 [00:01<00:04, 37.81it/s]
+frame loading (JPEG):  26%|██▌       | 52/200 [00:01<00:03, 38.35it/s]
+frame loading (JPEG):  28%|██▊       | 56/200 [00:01<00:03, 37.82it/s]
+frame loading (JPEG):  30%|███       | 61/200 [00:01<00:03, 38.62it/s]
+frame loading (JPEG):  33%|███▎      | 66/200 [00:01<00:03, 39.76it/s]
+frame loading (JPEG):  35%|███▌      | 70/200 [00:01<00:03, 39.61it/s]
+frame loading (JPEG):  37%|███▋      | 74/200 [00:01<00:03, 39.11it/s]
+frame loading (JPEG):  39%|███▉      | 78/200 [00:01<00:03, 38.29it/s]
+frame loading (JPEG):  42%|████▏     | 83/200 [00:02<00:02, 39.83it/s]
+frame loading (JPEG):  44%|████▎     | 87/200 [00:02<00:02, 38.09it/s]
+frame loading (JPEG):  46%|████▌     | 91/200 [00:02<00:02, 38.01it/s]
+frame loading (JPEG):  48%|████▊     | 96/200 [00:02<00:02, 38.61it/s]
+frame loading (JPEG):  50%|█████     | 101/200 [00:02<00:02, 39.83it/s]
+frame loading (JPEG):  52%|█████▎    | 105/200 [00:02<00:02, 39.56it/s]
+frame loading (JPEG):  55%|█████▍    | 109/200 [00:02<00:02, 39.59it/s]
+frame loading (JPEG):  56%|█████▋    | 113/200 [00:02<00:02, 39.42it/s]
+frame loading (JPEG):  59%|█████▉    | 118/200 [00:02<00:02, 40.16it/s]
+frame loading (JPEG):  62%|██████▏   | 123/200 [00:03<00:02, 36.63it/s]
+frame loading (JPEG):  64%|██████▎   | 127/200 [00:03<00:01, 37.28it/s]
+frame loading (JPEG):  66%|██████▌   | 132/200 [00:03<00:01, 39.67it/s]
+frame loading (JPEG):  68%|██████▊   | 137/200 [00:03<00:01, 41.17it/s]
+frame loading (JPEG):  71%|███████   | 142/200 [00:03<00:01, 40.21it/s]
+frame loading (JPEG):  74%|███████▎  | 147/200 [00:03<00:01, 40.47it/s]
+frame loading (JPEG):  76%|███████▌  | 152/200 [00:03<00:01, 41.40it/s]
+frame loading (JPEG):  78%|███████▊  | 157/200 [00:03<00:01, 41.90it/s]
+frame loading (JPEG):  81%|████████  | 162/200 [00:04<00:00, 41.82it/s]
+frame loading (JPEG):  84%|████████▎ | 167/200 [00:04<00:00, 41.02it/s]
+frame loading (JPEG):  86%|████████▌ | 172/200 [00:04<00:00, 41.08it/s]
+frame loading (JPEG):  88%|████████▊ | 177/200 [00:04<00:00, 41.41it/s]
+frame loading (JPEG):  91%|█████████ | 182/200 [00:04<00:00, 41.74it/s]
+frame loading (JPEG):  94%|█████████▎| 187/200 [00:04<00:00, 41.55it/s]
+frame loading (JPEG):  96%|█████████▌| 192/200 [00:04<00:00, 41.17it/s]
+frame loading (JPEG):  98%|█████████▊| 197/200 [00:04<00:00, 41.31it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:04<00:00, 40.49it/s]
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/200 [00:00<00:12, 15.81it/s]
+      [重锚定 #1] 局部 0 (全局 1200)
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/200 [00:00<00:08, 24.53it/s]
+      [重锚定 #2] 局部 6 (全局 1206)
+
+propagate in video:   0%|          | 0/194 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/194 [00:00<00:06, 29.48it/s]
+      [重锚定 #3] 局部 6 (全局 1206)
+
+propagate in video:   0%|          | 0/194 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/194 [00:00<00:04, 40.17it/s]
+      [重锚定 #4] 局部 12 (全局 1212)
+
+propagate in video:   0%|          | 0/188 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/188 [00:00<00:07, 25.00it/s]
+      [重锚定 #5] 局部 12 (全局 1212)
+
+propagate in video:   0%|          | 0/188 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/188 [00:00<00:06, 29.32it/s]
+      [重锚定 #6] 局部 18 (全局 1218)
+
+propagate in video:   0%|          | 0/182 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/182 [00:00<00:07, 22.86it/s]
+      [重锚定 #7] 局部 18 (全局 1218)
+
+propagate in video:   0%|          | 0/182 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/182 [00:00<00:07, 22.64it/s]
+      [重锚定 #8] 局部 24 (全局 1224)
+
+propagate in video:   0%|          | 0/176 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/176 [00:00<00:09, 18.96it/s]
+    完成 15 帧, 可信 0, 重锚定 5  [RAM 1.68GB  VRAM 271MB]
+[块 1400-1600) 200 帧, 有框 200  [RAM 1.68GB  VRAM 271MB]
+
+frame loading (JPEG):   0%|          | 0/200 [00:00<?, ?it/s]
+frame loading (JPEG):   2%|▎         | 5/200 [00:00<00:03, 49.06it/s]
+frame loading (JPEG):   5%|▌         | 10/200 [00:00<00:04, 42.96it/s]
+frame loading (JPEG):   8%|▊         | 15/200 [00:00<00:04, 41.08it/s]
+frame loading (JPEG):  10%|█         | 20/200 [00:00<00:04, 40.78it/s]
+frame loading (JPEG):  12%|█▎        | 25/200 [00:00<00:04, 40.21it/s]
+frame loading (JPEG):  15%|█▌        | 30/200 [00:00<00:04, 39.13it/s]
+frame loading (JPEG):  17%|█▋        | 34/200 [00:00<00:04, 38.07it/s]
+frame loading (JPEG):  20%|█▉        | 39/200 [00:00<00:04, 38.95it/s]
+frame loading (JPEG):  22%|██▏       | 44/200 [00:01<00:03, 40.26it/s]
+frame loading (JPEG):  24%|██▍       | 49/200 [00:01<00:03, 40.20it/s]
+frame loading (JPEG):  27%|██▋       | 54/200 [00:01<00:03, 40.75it/s]
+frame loading (JPEG):  30%|██▉       | 59/200 [00:01<00:03, 40.93it/s]
+frame loading (JPEG):  32%|███▏      | 64/200 [00:01<00:03, 40.62it/s]
+frame loading (JPEG):  34%|███▍      | 69/200 [00:01<00:03, 41.71it/s]
+frame loading (JPEG):  37%|███▋      | 74/200 [00:01<00:03, 41.19it/s]
+frame loading (JPEG):  40%|███▉      | 79/200 [00:01<00:02, 40.41it/s]
+frame loading (JPEG):  42%|████▏     | 84/200 [00:02<00:02, 40.53it/s]
+frame loading (JPEG):  44%|████▍     | 89/200 [00:02<00:02, 40.83it/s]
+frame loading (JPEG):  47%|████▋     | 94/200 [00:02<00:02, 41.90it/s]
+frame loading (JPEG):  50%|████▉     | 99/200 [00:02<00:02, 41.68it/s]
+frame loading (JPEG):  52%|█████▏    | 104/200 [00:02<00:02, 40.41it/s]
+frame loading (JPEG):  55%|█████▍    | 109/200 [00:02<00:02, 40.04it/s]
+frame loading (JPEG):  57%|█████▋    | 114/200 [00:02<00:02, 40.60it/s]
+frame loading (JPEG):  60%|█████▉    | 119/200 [00:02<00:02, 40.30it/s]
+frame loading (JPEG):  62%|██████▏   | 124/200 [00:03<00:01, 41.00it/s]
+frame loading (JPEG):  64%|██████▍   | 129/200 [00:03<00:01, 40.80it/s]
+frame loading (JPEG):  67%|██████▋   | 134/200 [00:03<00:01, 40.36it/s]
+frame loading (JPEG):  70%|██████▉   | 139/200 [00:03<00:01, 40.34it/s]
+frame loading (JPEG):  72%|███████▏  | 144/200 [00:03<00:01, 40.45it/s]
+frame loading (JPEG):  74%|███████▍  | 149/200 [00:03<00:01, 39.87it/s]
+frame loading (JPEG):  77%|███████▋  | 154/200 [00:03<00:01, 39.98it/s]
+frame loading (JPEG):  80%|███████▉  | 159/200 [00:03<00:01, 40.31it/s]
+frame loading (JPEG):  82%|████████▏ | 164/200 [00:04<00:00, 40.69it/s]
+frame loading (JPEG):  84%|████████▍ | 169/200 [00:04<00:00, 41.52it/s]
+frame loading (JPEG):  87%|████████▋ | 174/200 [00:04<00:00, 41.75it/s]
+frame loading (JPEG):  90%|████████▉ | 179/200 [00:04<00:00, 41.76it/s]
+frame loading (JPEG):  92%|█████████▏| 184/200 [00:04<00:00, 40.96it/s]
+frame loading (JPEG):  94%|█████████▍| 189/200 [00:04<00:00, 40.22it/s]
+frame loading (JPEG):  97%|█████████▋| 194/200 [00:04<00:00, 41.58it/s]
+frame loading (JPEG): 100%|█████████▉| 199/200 [00:04<00:00, 40.54it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:04<00:00, 40.67it/s]
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/200 [00:00<00:12, 15.95it/s]
+      [重锚定 #1] 局部 0 (全局 1400)
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/200 [00:00<00:09, 21.34it/s]
+      [重锚定 #2] 局部 6 (全局 1406)
+
+propagate in video:   0%|          | 0/194 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/194 [00:00<00:05, 37.51it/s]
+      [重锚定 #3] 局部 6 (全局 1406)
+
+propagate in video:   0%|          | 0/194 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/194 [00:00<00:07, 24.52it/s]
+      [重锚定 #4] 局部 12 (全局 1412)
+
+propagate in video:   0%|          | 0/188 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 3/188 [00:00<00:06, 29.94it/s]
+propagate in video:   2%|▏         | 3/188 [00:00<00:07, 23.96it/s]
+      [重锚定 #5] 局部 13 (全局 1413)
+
+propagate in video:   0%|          | 0/187 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/187 [00:00<00:11, 16.50it/s]
+      [重锚定 #6] 局部 19 (全局 1419)
+
+propagate in video:   0%|          | 0/181 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/181 [00:00<00:09, 18.91it/s]
+      [重锚定 #7] 局部 19 (全局 1419)
+
+propagate in video:   0%|          | 0/181 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/181 [00:00<00:08, 20.99it/s]
+      [重锚定 #8] 局部 25 (全局 1425)
+
+propagate in video:   0%|          | 0/175 [00:00<?, ?it/s]
+propagate in video:   1%|          | 2/175 [00:00<00:06, 28.11it/s]
+    完成 16 帧, 可信 1, 重锚定 6  [RAM 2.26GB  VRAM 271MB]
+[块 1600-1753) 153 帧, 有框 53  [RAM 2.26GB  VRAM 271MB]
+
+frame loading (JPEG):   0%|          | 0/153 [00:00<?, ?it/s]
+frame loading (JPEG):   3%|▎         | 5/153 [00:00<00:03, 49.01it/s]
+frame loading (JPEG):   7%|▋         | 11/153 [00:00<00:02, 50.67it/s]
+frame loading (JPEG):  11%|█         | 17/153 [00:00<00:02, 48.39it/s]
+frame loading (JPEG):  14%|█▍        | 22/153 [00:00<00:02, 48.81it/s]
+frame loading (JPEG):  18%|█▊        | 27/153 [00:00<00:02, 48.92it/s]
+frame loading (JPEG):  22%|██▏       | 33/153 [00:00<00:02, 50.55it/s]
+frame loading (JPEG):  25%|██▌       | 39/153 [00:00<00:02, 51.18it/s]
+frame loading (JPEG):  29%|██▉       | 45/153 [00:00<00:02, 51.91it/s]
+frame loading (JPEG):  33%|███▎      | 51/153 [00:01<00:01, 51.37it/s]
+frame loading (JPEG):  37%|███▋      | 57/153 [00:01<00:01, 51.21it/s]
+frame loading (JPEG):  41%|████      | 63/153 [00:01<00:01, 52.45it/s]
+frame loading (JPEG):  45%|████▌     | 69/153 [00:01<00:01, 50.53it/s]
+frame loading (JPEG):  49%|████▉     | 75/153 [00:01<00:01, 50.18it/s]
+frame loading (JPEG):  53%|█████▎    | 81/153 [00:01<00:01, 50.62it/s]
+frame loading (JPEG):  57%|█████▋    | 87/153 [00:01<00:01, 50.46it/s]
+frame loading (JPEG):  61%|██████    | 93/153 [00:01<00:01, 50.89it/s]
+frame loading (JPEG):  65%|██████▍   | 99/153 [00:01<00:01, 48.43it/s]
+frame loading (JPEG):  68%|██████▊   | 104/153 [00:02<00:01, 47.65it/s]
+frame loading (JPEG):  72%|███████▏  | 110/153 [00:02<00:00, 48.77it/s]
+frame loading (JPEG):  75%|███████▌  | 115/153 [00:02<00:00, 48.93it/s]
+frame loading (JPEG):  78%|███████▊  | 120/153 [00:02<00:00, 48.49it/s]
+frame loading (JPEG):  82%|████████▏ | 125/153 [00:02<00:00, 48.69it/s]
+frame loading (JPEG):  86%|████████▌ | 131/153 [00:02<00:00, 51.40it/s]
+frame loading (JPEG):  90%|████████▉ | 137/153 [00:02<00:00, 52.42it/s]
+frame loading (JPEG):  93%|█████████▎| 143/153 [00:02<00:00, 51.07it/s]
+frame loading (JPEG):  97%|█████████▋| 149/153 [00:02<00:00, 51.24it/s]
+frame loading (JPEG): 100%|██████████| 153/153 [00:03<00:00, 50.36it/s]
+
+propagate in video:   0%|          | 0/153 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 3/153 [00:00<00:07, 19.44it/s]
+propagate in video:   3%|▎         | 5/153 [00:00<00:07, 19.04it/s]
+propagate in video:   5%|▍         | 7/153 [00:00<00:07, 19.31it/s]
+propagate in video:   7%|▋         | 10/153 [00:00<00:06, 21.41it/s]
+propagate in video:   8%|▊         | 13/153 [00:00<00:06, 22.84it/s]
+propagate in video:  10%|█         | 16/153 [00:00<00:06, 22.41it/s]
+propagate in video:  12%|█▏        | 19/153 [00:00<00:06, 21.31it/s]
+propagate in video:  14%|█▍        | 22/153 [00:01<00:06, 21.62it/s]
+propagate in video:  16%|█▋        | 25/153 [00:01<00:05, 22.31it/s]
+propagate in video:  19%|█▉        | 29/153 [00:01<00:04, 25.77it/s]
+propagate in video:  22%|██▏       | 34/153 [00:01<00:04, 28.72it/s]
+propagate in video:  25%|██▍       | 38/153 [00:01<00:03, 31.33it/s]
+propagate in video:  27%|██▋       | 42/153 [00:01<00:03, 31.12it/s]
+propagate in video:  30%|███       | 46/153 [00:01<00:03, 29.61it/s]
+propagate in video:  33%|███▎      | 50/153 [00:01<00:03, 28.58it/s]
+propagate in video:  35%|███▌      | 54/153 [00:02<00:03, 29.13it/s]
+propagate in video:  39%|███▊      | 59/153 [00:02<00:02, 33.05it/s]
+propagate in video:  42%|████▏     | 64/153 [00:02<00:02, 37.13it/s]
+propagate in video:  45%|████▌     | 69/153 [00:02<00:02, 39.21it/s]
+propagate in video:  48%|████▊     | 74/153 [00:02<00:01, 40.18it/s]
+propagate in video:  52%|█████▏    | 79/153 [00:02<00:01, 39.93it/s]
+propagate in video:  55%|█████▍    | 84/153 [00:02<00:01, 39.40it/s]
+propagate in video:  58%|█████▊    | 88/153 [00:02<00:01, 38.82it/s]
+propagate in video:  60%|██████    | 92/153 [00:03<00:01, 37.60it/s]
+propagate in video:  63%|██████▎   | 97/153 [00:03<00:01, 39.40it/s]
+propagate in video:  66%|██████▌   | 101/153 [00:03<00:01, 36.50it/s]
+propagate in video:  69%|██████▊   | 105/153 [00:03<00:01, 36.67it/s]
+propagate in video:  71%|███████   | 109/153 [00:03<00:01, 35.16it/s]
+propagate in video:  75%|███████▌  | 115/153 [00:03<00:00, 39.94it/s]
+propagate in video:  79%|███████▉  | 121/153 [00:03<00:00, 42.50it/s]
+propagate in video:  83%|████████▎ | 127/153 [00:03<00:00, 45.48it/s]
+propagate in video:  86%|████████▋ | 132/153 [00:03<00:00, 45.94it/s]
+propagate in video:  90%|████████▉ | 137/153 [00:04<00:00, 45.94it/s]
+propagate in video:  93%|█████████▎| 142/153 [00:04<00:00, 46.25it/s]
+propagate in video:  96%|█████████▌| 147/153 [00:04<00:00, 45.12it/s]
+propagate in video:  99%|█████████▉| 152/153 [00:04<00:00, 43.94it/s]
+propagate in video: 100%|██████████| 153/153 [00:04<00:00, 34.43it/s]
+    完成 153 帧, 可信 33, 重锚定 0  [RAM 1.68GB  VRAM 271MB]
+[完成] 560 帧, 69.1s (8.1 fps)
+Traceback (most recent call last):
+  File "E:\RocketAttitudeEstimation\scripts\rocket_seg.py", line 656, in <module>
+    main()
+  File "E:\RocketAttitudeEstimation\scripts\rocket_seg.py", line 652, in main
+    save(res, outs, info, a.tag)
+  File "E:\RocketAttitudeEstimation\scripts\rocket_seg.py", line 597, in save
+    XL[f, k] = np.round(fs.xl[k]).astype(np.int16)
+    ~~^^^^^^
+IndexError: boolean index did not match indexed array along axis 1; size of axis is 360 but size of corresponding boolean axis is 480
+[退出码 1  用时 72.7s]
+
+==============================================================================
+运行 2026-10-08 14:33:37  阶段 ['detect', 'stabilize', 'seg', 'angle_mask']
+
+$ E:\Anaconda\envs\yolo26\python.exe E:\RocketAttitudeEstimation\scripts\rocket_seg.py --dets-tag gentest --tag g360 --model tiny --image-size 512 --chunk 200
+[构建] sam2.1_hiera_tiny image_size=512 half=True
+[构建] 0.8s
+Traceback (most recent call last):
+  File "E:\RocketAttitudeEstimation\scripts\rocket_seg.py", line 658, in <module>
+    main()
+  File "E:\RocketAttitudeEstimation\scripts\rocket_seg.py", line 652, in main
+    res, outs, info = run(cfg, dets_tag=a.dets_tag, start=a.start,
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\RocketAttitudeEstimation\scripts\rocket_seg.py", line 443, in run
+    frames_root = CACHE / "seg_frames" / video_key(vm)
+                                         ^^^^^^^^^^^^^
+  File "E:\RocketAttitudeEstimation\scripts\video_io.py", line 65, in video_key
+    p = Path(vm_or_path)
+        ^^^^^^^^^^^^^^^^
+  File "E:\Anaconda\envs\yolo26\Lib\pathlib.py", line 1162, in __init__
+    super().__init__(*args)
+  File "E:\Anaconda\envs\yolo26\Lib\pathlib.py", line 373, in __init__
+    raise TypeError(
+TypeError: argument should be a str or an os.PathLike object where __fspath__ returns a str, not 'dict'
+[退出码 1  用时 3.5s]
+
+==============================================================================
+运行 2026-10-08 14:34:07  阶段 ['seg', 'angle_mask']
+
+$ E:\Anaconda\envs\yolo26\python.exe E:\RocketAttitudeEstimation\scripts\rocket_seg.py --dets-tag gentest --tag g360 --model tiny --image-size 512 --chunk 200
+[构建] sam2.1_hiera_tiny image_size=512 half=True
+[构建] 0.8s
+[块 0-200) 200 帧, 有框 200  [RAM 1.05GB  VRAM 287MB]
+
+frame loading (JPEG):   0%|          | 0/200 [00:00<?, ?it/s]
+frame loading (JPEG):   4%|▎         | 7/200 [00:00<00:02, 66.85it/s]
+frame loading (JPEG):   8%|▊         | 15/200 [00:00<00:02, 69.99it/s]
+frame loading (JPEG):  11%|█         | 22/200 [00:00<00:02, 69.90it/s]
+frame loading (JPEG):  14%|█▍        | 29/200 [00:00<00:02, 68.88it/s]
+frame loading (JPEG):  18%|█▊        | 36/200 [00:00<00:02, 68.86it/s]
+frame loading (JPEG):  22%|██▏       | 43/200 [00:00<00:02, 65.46it/s]
+frame loading (JPEG):  25%|██▌       | 50/200 [00:00<00:02, 62.94it/s]
+frame loading (JPEG):  28%|██▊       | 57/200 [00:00<00:02, 63.76it/s]
+frame loading (JPEG):  32%|███▏      | 64/200 [00:00<00:02, 63.61it/s]
+frame loading (JPEG):  36%|███▌      | 71/200 [00:01<00:02, 63.60it/s]
+frame loading (JPEG):  39%|███▉      | 78/200 [00:01<00:01, 64.01it/s]
+frame loading (JPEG):  42%|████▎     | 85/200 [00:01<00:01, 64.51it/s]
+frame loading (JPEG):  46%|████▌     | 92/200 [00:01<00:01, 64.40it/s]
+frame loading (JPEG):  50%|████▉     | 99/200 [00:01<00:01, 65.42it/s]
+frame loading (JPEG):  53%|█████▎    | 106/200 [00:01<00:01, 64.47it/s]
+frame loading (JPEG):  56%|█████▋    | 113/200 [00:01<00:01, 65.02it/s]
+frame loading (JPEG):  60%|██████    | 120/200 [00:01<00:01, 64.83it/s]
+frame loading (JPEG):  64%|██████▎   | 127/200 [00:01<00:01, 63.98it/s]
+frame loading (JPEG):  67%|██████▋   | 134/200 [00:02<00:01, 64.55it/s]
+frame loading (JPEG):  70%|███████   | 141/200 [00:02<00:00, 64.24it/s]
+frame loading (JPEG):  74%|███████▍  | 148/200 [00:02<00:00, 64.18it/s]
+frame loading (JPEG):  78%|███████▊  | 155/200 [00:02<00:00, 65.25it/s]
+frame loading (JPEG):  81%|████████  | 162/200 [00:02<00:00, 64.53it/s]
+frame loading (JPEG):  84%|████████▍ | 169/200 [00:02<00:00, 64.12it/s]
+frame loading (JPEG):  88%|████████▊ | 176/200 [00:02<00:00, 63.61it/s]
+frame loading (JPEG):  92%|█████████▏| 183/200 [00:02<00:00, 63.76it/s]
+frame loading (JPEG):  95%|█████████▌| 190/200 [00:02<00:00, 64.53it/s]
+frame loading (JPEG):  98%|█████████▊| 197/200 [00:03<00:00, 64.10it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:03<00:00, 64.82it/s]
+E:\RocketAttitudeEstimation\third_party\sam2\sam2\sam2_video_predictor.py:786: UserWarning: cannot import name '_C' from 'sam2' (E:\RocketAttitudeEstimation\third_party\sam2\sam2\__init__.py)
+
+Skipping the post-processing step due to the error above. You can still use SAM 2 and it's OK to ignore the error above, although some post-processing functionality may be limited (which doesn't affect the results in most cases; see https://github.com/facebookresearch/sam2/blob/main/INSTALL.md).
+  pred_masks_gpu = fill_holes_in_mask_scores(
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 3/200 [00:00<00:08, 23.79it/s]
+propagate in video:   3%|▎         | 6/200 [00:00<00:09, 20.87it/s]
+propagate in video:   4%|▍         | 9/200 [00:00<00:08, 22.47it/s]
+propagate in video:   6%|▌         | 12/200 [00:00<00:08, 22.49it/s]
+propagate in video:   8%|▊         | 16/200 [00:00<00:06, 26.47it/s]
+propagate in video:  10%|▉         | 19/200 [00:00<00:06, 26.33it/s]
+propagate in video:  12%|█▏        | 23/200 [00:00<00:06, 28.56it/s]
+propagate in video:  13%|█▎        | 26/200 [00:00<00:06, 28.60it/s]
+propagate in video:  15%|█▌        | 30/200 [00:01<00:05, 31.76it/s]
+propagate in video:  17%|█▋        | 34/200 [00:01<00:05, 32.74it/s]
+propagate in video:  19%|█▉        | 38/200 [00:01<00:05, 30.79it/s]
+propagate in video:  21%|██        | 42/200 [00:01<00:04, 32.21it/s]
+propagate in video:  23%|██▎       | 46/200 [00:01<00:05, 30.16it/s]
+propagate in video:  25%|██▌       | 50/200 [00:01<00:04, 31.89it/s]
+propagate in video:  27%|██▋       | 54/200 [00:01<00:04, 29.55it/s]
+propagate in video:  30%|██▉       | 59/200 [00:01<00:04, 33.54it/s]
+propagate in video:  32%|███▏      | 63/200 [00:02<00:03, 34.92it/s]
+propagate in video:  34%|███▎      | 67/200 [00:02<00:04, 32.40it/s]
+propagate in video:  36%|███▌      | 71/200 [00:02<00:04, 32.01it/s]
+propagate in video:  38%|███▊      | 75/200 [00:02<00:03, 32.63it/s]
+propagate in video:  40%|███▉      | 79/200 [00:02<00:03, 31.60it/s]
+propagate in video:  42%|████▏     | 84/200 [00:02<00:03, 32.09it/s]
+propagate in video:  44%|████▍     | 89/200 [00:02<00:03, 32.23it/s]
+propagate in video:  46%|████▋     | 93/200 [00:03<00:03, 32.39it/s]
+propagate in video:  48%|████▊     | 97/200 [00:03<00:03, 30.71it/s]
+propagate in video:  51%|█████     | 102/200 [00:03<00:02, 34.31it/s]
+propagate in video:  53%|█████▎    | 106/200 [00:03<00:02, 35.11it/s]
+propagate in video:  55%|█████▌    | 110/200 [00:03<00:02, 34.49it/s]
+propagate in video:  57%|█████▋    | 114/200 [00:03<00:02, 34.23it/s]
+propagate in video:  59%|█████▉    | 118/200 [00:03<00:02, 33.08it/s]
+propagate in video:  62%|██████▏   | 123/200 [00:03<00:02, 34.05it/s]
+propagate in video:  64%|██████▍   | 128/200 [00:04<00:01, 36.99it/s]
+propagate in video:  66%|██████▌   | 132/200 [00:04<00:02, 33.73it/s]
+propagate in video:  68%|██████▊   | 136/200 [00:04<00:02, 31.40it/s]
+propagate in video:  70%|███████   | 140/200 [00:04<00:01, 31.49it/s]
+propagate in video:  72%|███████▎  | 145/200 [00:04<00:01, 31.64it/s]
+propagate in video:  74%|███████▍  | 149/200 [00:04<00:01, 31.74it/s]
+propagate in video:  76%|███████▋  | 153/200 [00:04<00:01, 33.36it/s]
+propagate in video:  78%|███████▊  | 157/200 [00:04<00:01, 34.00it/s]
+propagate in video:  80%|████████  | 161/200 [00:05<00:01, 32.60it/s]
+propagate in video:  82%|████████▎ | 165/200 [00:05<00:01, 29.39it/s]
+propagate in video:  84%|████████▍ | 169/200 [00:05<00:01, 29.92it/s]
+propagate in video:  86%|████████▋ | 173/200 [00:05<00:00, 29.41it/s]
+propagate in video:  88%|████████▊ | 177/200 [00:05<00:00, 30.05it/s]
+propagate in video:  90%|█████████ | 181/200 [00:05<00:00, 30.16it/s]
+propagate in video:  92%|█████████▎| 185/200 [00:05<00:00, 30.15it/s]
+propagate in video:  94%|█████████▍| 189/200 [00:06<00:00, 30.93it/s]
+propagate in video:  96%|█████████▋| 193/200 [00:06<00:00, 31.91it/s]
+propagate in video:  98%|█████████▊| 197/200 [00:06<00:00, 32.66it/s]
+propagate in video: 100%|██████████| 200/200 [00:06<00:00, 31.33it/s]
+    完成 200 帧, 可信 200, 重锚定 0  [RAM 1.67GB  VRAM 271MB]
+[块 200-400) 200 帧, 有框 200  [RAM 1.67GB  VRAM 271MB]
+
+frame loading (JPEG):   0%|          | 0/200 [00:00<?, ?it/s]
+frame loading (JPEG):   4%|▍         | 8/200 [00:00<00:02, 73.46it/s]
+frame loading (JPEG):   8%|▊         | 16/200 [00:00<00:02, 73.07it/s]
+frame loading (JPEG):  12%|█▏        | 24/200 [00:00<00:02, 75.90it/s]
+frame loading (JPEG):  16%|█▌        | 32/200 [00:00<00:02, 75.52it/s]
+frame loading (JPEG):  20%|██        | 40/200 [00:00<00:02, 73.49it/s]
+frame loading (JPEG):  24%|██▍       | 48/200 [00:00<00:02, 71.90it/s]
+frame loading (JPEG):  28%|██▊       | 56/200 [00:00<00:02, 69.43it/s]
+frame loading (JPEG):  32%|███▏      | 63/200 [00:00<00:02, 68.41it/s]
+frame loading (JPEG):  36%|███▌      | 71/200 [00:00<00:01, 69.62it/s]
+frame loading (JPEG):  40%|███▉      | 79/200 [00:01<00:01, 70.77it/s]
+frame loading (JPEG):  44%|████▎     | 87/200 [00:01<00:01, 65.60it/s]
+frame loading (JPEG):  47%|████▋     | 94/200 [00:01<00:01, 65.74it/s]
+frame loading (JPEG):  50%|█████     | 101/200 [00:01<00:01, 65.63it/s]
+frame loading (JPEG):  54%|█████▍    | 108/200 [00:01<00:01, 66.83it/s]
+frame loading (JPEG):  58%|█████▊    | 116/200 [00:01<00:01, 69.60it/s]
+frame loading (JPEG):  62%|██████▏   | 124/200 [00:01<00:01, 71.89it/s]
+frame loading (JPEG):  66%|██████▌   | 132/200 [00:01<00:00, 71.67it/s]
+frame loading (JPEG):  70%|███████   | 141/200 [00:01<00:00, 73.94it/s]
+frame loading (JPEG):  74%|███████▍  | 149/200 [00:02<00:00, 74.12it/s]
+frame loading (JPEG):  78%|███████▊  | 157/200 [00:02<00:00, 74.95it/s]
+frame loading (JPEG):  82%|████████▎ | 165/200 [00:02<00:00, 74.87it/s]
+frame loading (JPEG):  86%|████████▋ | 173/200 [00:02<00:00, 75.73it/s]
+frame loading (JPEG):  90%|█████████ | 181/200 [00:02<00:00, 76.30it/s]
+frame loading (JPEG):  94%|█████████▍| 189/200 [00:02<00:00, 76.63it/s]
+frame loading (JPEG):  98%|█████████▊| 197/200 [00:02<00:00, 76.92it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:02<00:00, 72.28it/s]
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 4/200 [00:00<00:05, 38.35it/s]
+propagate in video:   4%|▍         | 8/200 [00:00<00:06, 30.70it/s]
+propagate in video:   6%|▌         | 12/200 [00:00<00:05, 33.72it/s]
+propagate in video:   8%|▊         | 16/200 [00:00<00:06, 29.91it/s]
+propagate in video:  10%|█         | 20/200 [00:00<00:06, 27.39it/s]
+propagate in video:  12%|█▏        | 23/200 [00:00<00:06, 27.90it/s]
+propagate in video:  14%|█▍        | 28/200 [00:00<00:05, 31.00it/s]
+propagate in video:  16%|█▌        | 32/200 [00:01<00:05, 28.93it/s]
+propagate in video:  18%|█▊        | 36/200 [00:01<00:05, 31.39it/s]
+propagate in video:  20%|██        | 40/200 [00:01<00:05, 30.78it/s]
+propagate in video:  22%|██▏       | 44/200 [00:01<00:05, 30.82it/s]
+propagate in video:  24%|██▍       | 48/200 [00:01<00:05, 29.35it/s]
+propagate in video:  26%|██▌       | 51/200 [00:01<00:05, 28.29it/s]
+propagate in video:  28%|██▊       | 56/200 [00:01<00:04, 31.47it/s]
+propagate in video:  30%|███       | 60/200 [00:01<00:04, 30.66it/s]
+propagate in video:  32%|███▏      | 64/200 [00:02<00:04, 32.03it/s]
+propagate in video:  34%|███▍      | 68/200 [00:02<00:03, 33.81it/s]
+propagate in video:  36%|███▌      | 72/200 [00:02<00:03, 34.15it/s]
+propagate in video:  38%|███▊      | 76/200 [00:02<00:03, 33.14it/s]
+propagate in video:  40%|████      | 80/200 [00:02<00:03, 31.21it/s]
+propagate in video:  42%|████▏     | 84/200 [00:02<00:03, 31.34it/s]
+propagate in video:  44%|████▍     | 88/200 [00:02<00:03, 29.85it/s]
+propagate in video:  46%|████▌     | 92/200 [00:02<00:03, 30.65it/s]
+propagate in video:  48%|████▊     | 96/200 [00:03<00:03, 29.99it/s]
+propagate in video:  50%|█████     | 100/200 [00:03<00:03, 29.58it/s]
+propagate in video:  52%|█████▎    | 105/200 [00:03<00:02, 33.16it/s]
+propagate in video:  55%|█████▍    | 109/200 [00:03<00:02, 34.57it/s]
+propagate in video:  56%|█████▋    | 113/200 [00:03<00:02, 33.55it/s]
+propagate in video:  58%|█████▊    | 117/200 [00:03<00:02, 31.61it/s]
+propagate in video:  60%|██████    | 121/200 [00:03<00:02, 31.84it/s]
+propagate in video:  62%|██████▎   | 125/200 [00:04<00:02, 30.04it/s]
+propagate in video:  64%|██████▍   | 129/200 [00:04<00:02, 29.17it/s]
+propagate in video:  67%|██████▋   | 134/200 [00:04<00:02, 32.23it/s]
+propagate in video:  69%|██████▉   | 138/200 [00:04<00:02, 30.83it/s]
+propagate in video:  71%|███████   | 142/200 [00:04<00:01, 31.06it/s]
+propagate in video:  73%|███████▎  | 146/200 [00:04<00:01, 30.13it/s]
+propagate in video:  76%|███████▌  | 151/200 [00:04<00:01, 32.70it/s]
+propagate in video:  78%|███████▊  | 155/200 [00:04<00:01, 30.81it/s]
+propagate in video:  80%|███████▉  | 159/200 [00:05<00:01, 30.72it/s]
+propagate in video:  82%|████████▏ | 164/200 [00:05<00:01, 33.75it/s]
+propagate in video:  84%|████████▍ | 168/200 [00:05<00:00, 32.09it/s]
+propagate in video:  86%|████████▌ | 172/200 [00:05<00:00, 29.25it/s]
+propagate in video:  88%|████████▊ | 177/200 [00:05<00:00, 30.75it/s]
+propagate in video:  90%|█████████ | 181/200 [00:05<00:00, 28.82it/s]
+propagate in video:  90%|█████████ | 181/200 [00:05<00:00, 30.77it/s]
+      [重锚定 #1] 局部 179 (全局 379)
+
+propagate in video:   0%|          | 0/21 [00:00<?, ?it/s]
+propagate in video:  10%|▉         | 2/21 [00:00<00:01, 18.44it/s]
+      [重锚定 #2] 局部 185 (全局 385)
+
+propagate in video:   0%|          | 0/15 [00:00<?, ?it/s]
+propagate in video:  20%|██        | 3/15 [00:00<00:00, 29.16it/s]
+propagate in video:  40%|████      | 6/15 [00:00<00:00, 24.15it/s]
+propagate in video:  60%|██████    | 9/15 [00:00<00:00, 23.60it/s]
+propagate in video:  80%|████████  | 12/15 [00:00<00:00, 23.43it/s]
+propagate in video: 100%|██████████| 15/15 [00:00<00:00, 22.52it/s]
+propagate in video: 100%|██████████| 15/15 [00:00<00:00, 23.28it/s]
+    完成 197 帧, 可信 194, 重锚定 2  [RAM 2.28GB  VRAM 271MB]
+[块 400-600) 200 帧, 有框 200  [RAM 2.28GB  VRAM 271MB]
+
+frame loading (JPEG):   0%|          | 0/200 [00:00<?, ?it/s]
+frame loading (JPEG):   4%|▎         | 7/200 [00:00<00:02, 66.21it/s]
+frame loading (JPEG):   7%|▋         | 14/200 [00:00<00:02, 65.23it/s]
+frame loading (JPEG):  11%|█         | 22/200 [00:00<00:02, 68.93it/s]
+frame loading (JPEG):  14%|█▍        | 29/200 [00:00<00:02, 68.17it/s]
+frame loading (JPEG):  18%|█▊        | 37/200 [00:00<00:02, 69.90it/s]
+frame loading (JPEG):  22%|██▎       | 45/200 [00:00<00:02, 72.04it/s]
+frame loading (JPEG):  26%|██▋       | 53/200 [00:00<00:01, 73.57it/s]
+frame loading (JPEG):  30%|███       | 61/200 [00:00<00:01, 75.40it/s]
+frame loading (JPEG):  34%|███▍      | 69/200 [00:00<00:01, 74.28it/s]
+frame loading (JPEG):  38%|███▊      | 77/200 [00:01<00:01, 75.66it/s]
+frame loading (JPEG):  42%|████▎     | 85/200 [00:01<00:01, 73.61it/s]
+frame loading (JPEG):  46%|████▋     | 93/200 [00:01<00:01, 70.40it/s]
+frame loading (JPEG):  50%|█████     | 101/200 [00:01<00:01, 60.50it/s]
+frame loading (JPEG):  54%|█████▍    | 108/200 [00:01<00:01, 55.65it/s]
+frame loading (JPEG):  57%|█████▋    | 114/200 [00:01<00:01, 52.80it/s]
+frame loading (JPEG):  60%|██████    | 120/200 [00:01<00:01, 52.17it/s]
+frame loading (JPEG):  63%|██████▎   | 126/200 [00:01<00:01, 52.05it/s]
+frame loading (JPEG):  66%|██████▌   | 132/200 [00:02<00:01, 52.66it/s]
+frame loading (JPEG):  69%|██████▉   | 138/200 [00:02<00:01, 51.39it/s]
+frame loading (JPEG):  72%|███████▏  | 144/200 [00:02<00:01, 50.98it/s]
+frame loading (JPEG):  75%|███████▌  | 150/200 [00:02<00:00, 51.20it/s]
+frame loading (JPEG):  78%|███████▊  | 156/200 [00:02<00:00, 49.50it/s]
+frame loading (JPEG):  80%|████████  | 161/200 [00:02<00:00, 48.78it/s]
+frame loading (JPEG):  83%|████████▎ | 166/200 [00:02<00:00, 48.60it/s]
+frame loading (JPEG):  86%|████████▌ | 172/200 [00:02<00:00, 50.18it/s]
+frame loading (JPEG):  89%|████████▉ | 178/200 [00:03<00:00, 50.61it/s]
+frame loading (JPEG):  92%|█████████▏| 184/200 [00:03<00:00, 52.04it/s]
+frame loading (JPEG):  95%|█████████▌| 190/200 [00:03<00:00, 52.06it/s]
+frame loading (JPEG):  98%|█████████▊| 196/200 [00:03<00:00, 49.90it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:03<00:00, 57.64it/s]
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 3/200 [00:00<00:09, 21.26it/s]
+propagate in video:   3%|▎         | 6/200 [00:00<00:08, 23.67it/s]
+propagate in video:   5%|▌         | 10/200 [00:00<00:06, 27.56it/s]
+propagate in video:   7%|▋         | 14/200 [00:00<00:06, 27.60it/s]
+propagate in video:   8%|▊         | 17/200 [00:00<00:06, 28.26it/s]
+propagate in video:  10%|█         | 21/200 [00:00<00:06, 28.41it/s]
+propagate in video:  12%|█▎        | 25/200 [00:00<00:05, 30.68it/s]
+propagate in video:  14%|█▍        | 29/200 [00:01<00:06, 27.40it/s]
+propagate in video:  16%|█▋        | 33/200 [00:01<00:05, 29.60it/s]
+propagate in video:  18%|█▊        | 37/200 [00:01<00:05, 31.30it/s]
+propagate in video:  20%|██        | 41/200 [00:01<00:05, 31.17it/s]
+propagate in video:  22%|██▎       | 45/200 [00:01<00:05, 29.45it/s]
+propagate in video:  24%|██▍       | 49/200 [00:01<00:05, 29.82it/s]
+propagate in video:  26%|██▋       | 53/200 [00:01<00:04, 29.95it/s]
+propagate in video:  28%|██▊       | 57/200 [00:01<00:04, 30.07it/s]
+propagate in video:  30%|███       | 61/200 [00:02<00:05, 26.61it/s]
+propagate in video:  32%|███▎      | 65/200 [00:02<00:04, 28.35it/s]
+propagate in video:  34%|███▍      | 68/200 [00:02<00:04, 27.80it/s]
+propagate in video:  36%|███▌      | 72/200 [00:02<00:04, 30.48it/s]
+propagate in video:  38%|███▊      | 76/200 [00:02<00:03, 31.85it/s]
+propagate in video:  40%|████      | 80/200 [00:02<00:03, 30.66it/s]
+propagate in video:  42%|████▏     | 84/200 [00:02<00:03, 29.01it/s]
+propagate in video:  43%|████▎     | 86/200 [00:02<00:03, 28.73it/s]
+      [重锚定 #1] 局部 84 (全局 484)
+
+propagate in video:   0%|          | 0/116 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 2/116 [00:00<00:04, 28.08it/s]
+      [重锚定 #2] 局部 90 (全局 490)
+
+propagate in video:   0%|          | 0/110 [00:00<?, ?it/s]
+propagate in video:   4%|▎         | 4/110 [00:00<00:02, 37.29it/s]
+propagate in video:   7%|▋         | 8/110 [00:00<00:03, 31.85it/s]
+propagate in video:  11%|█         | 12/110 [00:00<00:02, 34.75it/s]
+propagate in video:  15%|█▍        | 16/110 [00:00<00:03, 29.91it/s]
+propagate in video:  18%|█▊        | 20/110 [00:00<00:02, 31.39it/s]
+propagate in video:  19%|█▉        | 21/110 [00:00<00:02, 31.13it/s]
+      [重锚定 #3] 局部 109 (全局 509)
+
+propagate in video:   0%|          | 0/91 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 2/91 [00:00<00:03, 29.06it/s]
+      [重锚定 #4] 局部 115 (全局 515)
+
+propagate in video:   0%|          | 0/85 [00:00<?, ?it/s]
+propagate in video:   6%|▌         | 5/85 [00:00<00:01, 44.21it/s]
+propagate in video:  12%|█▏        | 10/85 [00:00<00:01, 39.78it/s]
+propagate in video:  18%|█▊        | 15/85 [00:00<00:01, 37.32it/s]
+propagate in video:  22%|██▏       | 19/85 [00:00<00:01, 38.09it/s]
+propagate in video:  27%|██▋       | 23/85 [00:00<00:01, 34.28it/s]
+propagate in video:  32%|███▏      | 27/85 [00:00<00:01, 34.58it/s]
+propagate in video:  36%|███▋      | 31/85 [00:00<00:01, 30.05it/s]
+propagate in video:  41%|████      | 35/85 [00:01<00:01, 32.25it/s]
+propagate in video:  46%|████▌     | 39/85 [00:01<00:01, 30.94it/s]
+propagate in video:  51%|█████     | 43/85 [00:01<00:01, 32.52it/s]
+propagate in video:  55%|█████▌    | 47/85 [00:01<00:01, 32.35it/s]
+propagate in video:  55%|█████▌    | 47/85 [00:01<00:01, 32.59it/s]
+      [重锚定 #5] 局部 160 (全局 560)
+
+propagate in video:   0%|          | 0/40 [00:00<?, ?it/s]
+propagate in video:   5%|▌         | 2/40 [00:00<00:01, 29.56it/s]
+      [重锚定 #6] 局部 166 (全局 566)
+
+propagate in video:   0%|          | 0/34 [00:00<?, ?it/s]
+propagate in video:  15%|█▍        | 5/34 [00:00<00:00, 34.61it/s]
+propagate in video:  26%|██▋       | 9/34 [00:00<00:00, 30.63it/s]
+propagate in video:  41%|████      | 14/34 [00:00<00:00, 35.59it/s]
+propagate in video:  53%|█████▎    | 18/34 [00:00<00:00, 33.59it/s]
+propagate in video:  65%|██████▍   | 22/34 [00:00<00:00, 31.25it/s]
+propagate in video:  76%|███████▋  | 26/34 [00:00<00:00, 29.05it/s]
+propagate in video:  88%|████████▊ | 30/34 [00:00<00:00, 29.14it/s]
+propagate in video:  97%|█████████▋| 33/34 [00:01<00:00, 28.28it/s]
+propagate in video: 100%|██████████| 34/34 [00:01<00:00, 30.52it/s]
+    完成 191 帧, 可信 181, 重锚定 6  [RAM 1.70GB  VRAM 271MB]
+[块 600-800) 200 帧, 有框 158  [RAM 1.70GB  VRAM 271MB]
+
+frame loading (JPEG):   0%|          | 0/200 [00:00<?, ?it/s]
+frame loading (JPEG):   4%|▍         | 8/200 [00:00<00:02, 77.48it/s]
+frame loading (JPEG):   8%|▊         | 16/200 [00:00<00:02, 76.15it/s]
+frame loading (JPEG):  12%|█▏        | 24/200 [00:00<00:02, 72.54it/s]
+frame loading (JPEG):  16%|█▌        | 32/200 [00:00<00:02, 69.58it/s]
+frame loading (JPEG):  20%|█▉        | 39/200 [00:00<00:02, 66.78it/s]
+frame loading (JPEG):  23%|██▎       | 46/200 [00:00<00:02, 61.14it/s]
+frame loading (JPEG):  26%|██▋       | 53/200 [00:00<00:02, 58.79it/s]
+frame loading (JPEG):  30%|██▉       | 59/200 [00:00<00:02, 56.08it/s]
+frame loading (JPEG):  32%|███▎      | 65/200 [00:01<00:02, 54.67it/s]
+frame loading (JPEG):  36%|███▌      | 71/200 [00:01<00:02, 53.16it/s]
+frame loading (JPEG):  38%|███▊      | 77/200 [00:01<00:02, 51.51it/s]
+frame loading (JPEG):  42%|████▏     | 83/200 [00:01<00:02, 51.02it/s]
+frame loading (JPEG):  44%|████▍     | 89/200 [00:01<00:02, 51.90it/s]
+frame loading (JPEG):  48%|████▊     | 95/200 [00:01<00:02, 51.20it/s]
+frame loading (JPEG):  50%|█████     | 101/200 [00:01<00:02, 49.12it/s]
+frame loading (JPEG):  53%|█████▎    | 106/200 [00:01<00:01, 49.13it/s]
+frame loading (JPEG):  56%|█████▌    | 111/200 [00:01<00:01, 49.15it/s]
+frame loading (JPEG):  58%|█████▊    | 117/200 [00:02<00:01, 50.39it/s]
+frame loading (JPEG):  62%|██████▏   | 123/200 [00:02<00:01, 48.92it/s]
+frame loading (JPEG):  64%|██████▍   | 128/200 [00:02<00:01, 49.04it/s]
+frame loading (JPEG):  66%|██████▋   | 133/200 [00:02<00:01, 47.59it/s]
+frame loading (JPEG):  69%|██████▉   | 138/200 [00:02<00:01, 45.54it/s]
+frame loading (JPEG):  72%|███████▎  | 145/200 [00:02<00:01, 49.58it/s]
+frame loading (JPEG):  75%|███████▌  | 150/200 [00:02<00:01, 48.73it/s]
+frame loading (JPEG):  78%|███████▊  | 155/200 [00:02<00:00, 47.82it/s]
+frame loading (JPEG):  80%|████████  | 161/200 [00:03<00:00, 49.78it/s]
+frame loading (JPEG):  83%|████████▎ | 166/200 [00:03<00:00, 49.38it/s]
+frame loading (JPEG):  86%|████████▌ | 172/200 [00:03<00:00, 50.30it/s]
+frame loading (JPEG):  89%|████████▉ | 178/200 [00:03<00:00, 52.36it/s]
+frame loading (JPEG):  92%|█████████▏| 184/200 [00:03<00:00, 52.02it/s]
+frame loading (JPEG):  95%|█████████▌| 190/200 [00:03<00:00, 52.78it/s]
+frame loading (JPEG):  98%|█████████▊| 196/200 [00:03<00:00, 53.41it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:03<00:00, 53.12it/s]
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 3/200 [00:00<00:07, 26.78it/s]
+propagate in video:   3%|▎         | 6/200 [00:00<00:08, 23.36it/s]
+propagate in video:   5%|▌         | 10/200 [00:00<00:06, 28.11it/s]
+propagate in video:   6%|▋         | 13/200 [00:00<00:06, 26.79it/s]
+propagate in video:   8%|▊         | 17/200 [00:00<00:06, 28.94it/s]
+propagate in video:  10%|█         | 20/200 [00:00<00:06, 28.87it/s]
+propagate in video:  12%|█▏        | 24/200 [00:00<00:06, 29.15it/s]
+propagate in video:  14%|█▎        | 27/200 [00:00<00:05, 29.17it/s]
+propagate in video:  15%|█▌        | 30/200 [00:01<00:05, 28.64it/s]
+propagate in video:  17%|█▋        | 34/200 [00:01<00:05, 31.76it/s]
+propagate in video:  19%|█▉        | 38/200 [00:01<00:05, 31.63it/s]
+propagate in video:  22%|██▏       | 43/200 [00:01<00:04, 34.32it/s]
+propagate in video:  24%|██▎       | 47/200 [00:01<00:04, 34.53it/s]
+propagate in video:  26%|██▌       | 51/200 [00:01<00:04, 31.98it/s]
+propagate in video:  28%|██▊       | 55/200 [00:01<00:04, 29.87it/s]
+propagate in video:  30%|██▉       | 59/200 [00:01<00:04, 29.52it/s]
+propagate in video:  32%|███▏      | 63/200 [00:02<00:04, 28.92it/s]
+propagate in video:  34%|███▍      | 68/200 [00:02<00:04, 31.84it/s]
+propagate in video:  36%|███▌      | 72/200 [00:02<00:04, 31.68it/s]
+propagate in video:  38%|███▊      | 76/200 [00:02<00:03, 32.21it/s]
+propagate in video:  40%|████      | 80/200 [00:02<00:03, 30.78it/s]
+propagate in video:  42%|████▏     | 84/200 [00:02<00:03, 30.06it/s]
+propagate in video:  44%|████▍     | 89/200 [00:02<00:03, 32.43it/s]
+propagate in video:  46%|████▋     | 93/200 [00:03<00:03, 32.60it/s]
+propagate in video:  48%|████▊     | 97/200 [00:03<00:03, 31.13it/s]
+propagate in video:  48%|████▊     | 97/200 [00:03<00:03, 30.19it/s]
+      [重锚定 #1] 局部 95 (全局 695)
+
+propagate in video:   0%|          | 0/105 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 2/105 [00:00<00:03, 27.49it/s]
+      [重锚定 #2] 局部 101 (全局 701)
+
+propagate in video:   0%|          | 0/99 [00:00<?, ?it/s]
+propagate in video:   5%|▌         | 5/99 [00:00<00:02, 38.72it/s]
+propagate in video:  10%|█         | 10/99 [00:00<00:02, 43.13it/s]
+propagate in video:  15%|█▌        | 15/99 [00:00<00:02, 37.55it/s]
+propagate in video:  19%|█▉        | 19/99 [00:00<00:02, 37.88it/s]
+propagate in video:  23%|██▎       | 23/99 [00:00<00:02, 36.17it/s]
+propagate in video:  28%|██▊       | 28/99 [00:00<00:01, 39.38it/s]
+propagate in video:  33%|███▎      | 33/99 [00:00<00:01, 40.00it/s]
+propagate in video:  38%|███▊      | 38/99 [00:01<00:01, 36.49it/s]
+propagate in video:  43%|████▎     | 43/99 [00:01<00:01, 38.27it/s]
+propagate in video:  47%|████▋     | 47/99 [00:01<00:01, 37.84it/s]
+propagate in video:  52%|█████▏    | 51/99 [00:01<00:01, 38.41it/s]
+propagate in video:  56%|█████▌    | 55/99 [00:01<00:01, 34.23it/s]
+propagate in video:  60%|█████▉    | 59/99 [00:01<00:01, 34.93it/s]
+propagate in video:  64%|██████▎   | 63/99 [00:01<00:01, 30.10it/s]
+propagate in video:  68%|██████▊   | 67/99 [00:01<00:01, 30.14it/s]
+propagate in video:  72%|███████▏  | 71/99 [00:02<00:00, 31.89it/s]
+propagate in video:  76%|███████▌  | 75/99 [00:02<00:00, 30.02it/s]
+propagate in video:  80%|███████▉  | 79/99 [00:02<00:00, 32.35it/s]
+propagate in video:  85%|████████▍ | 84/99 [00:02<00:00, 35.15it/s]
+propagate in video:  89%|████████▉ | 88/99 [00:02<00:00, 31.97it/s]
+propagate in video:  93%|█████████▎| 92/99 [00:02<00:00, 30.55it/s]
+propagate in video:  97%|█████████▋| 96/99 [00:02<00:00, 30.92it/s]
+propagate in video: 100%|██████████| 99/99 [00:02<00:00, 34.46it/s]
+    完成 197 帧, 可信 151, 重锚定 2  [RAM 2.29GB  VRAM 271MB]
+[块 800-1000) 200 帧, 有框 200  [RAM 2.29GB  VRAM 271MB]
+
+frame loading (JPEG):   0%|          | 0/200 [00:00<?, ?it/s]
+frame loading (JPEG):   4%|▍         | 8/200 [00:00<00:02, 71.86it/s]
+frame loading (JPEG):   8%|▊         | 16/200 [00:00<00:02, 71.59it/s]
+frame loading (JPEG):  12%|█▏        | 24/200 [00:00<00:02, 73.86it/s]
+frame loading (JPEG):  16%|█▌        | 32/200 [00:00<00:02, 74.60it/s]
+frame loading (JPEG):  20%|██        | 40/200 [00:00<00:02, 74.18it/s]
+frame loading (JPEG):  24%|██▍       | 48/200 [00:00<00:02, 67.67it/s]
+frame loading (JPEG):  28%|██▊       | 55/200 [00:00<00:02, 61.96it/s]
+frame loading (JPEG):  31%|███       | 62/200 [00:00<00:02, 57.73it/s]
+frame loading (JPEG):  34%|███▍      | 68/200 [00:01<00:02, 52.67it/s]
+frame loading (JPEG):  37%|███▋      | 74/200 [00:01<00:02, 50.85it/s]
+frame loading (JPEG):  40%|████      | 80/200 [00:01<00:02, 51.11it/s]
+frame loading (JPEG):  43%|████▎     | 86/200 [00:01<00:02, 50.95it/s]
+frame loading (JPEG):  46%|████▌     | 92/200 [00:01<00:02, 50.42it/s]
+frame loading (JPEG):  49%|████▉     | 98/200 [00:01<00:02, 48.01it/s]
+frame loading (JPEG):  52%|█████▏    | 103/200 [00:01<00:02, 46.16it/s]
+frame loading (JPEG):  55%|█████▍    | 109/200 [00:01<00:01, 48.67it/s]
+frame loading (JPEG):  57%|█████▋    | 114/200 [00:02<00:01, 48.48it/s]
+frame loading (JPEG):  60%|█████▉    | 119/200 [00:02<00:01, 48.54it/s]
+frame loading (JPEG):  62%|██████▎   | 125/200 [00:02<00:01, 49.84it/s]
+frame loading (JPEG):  66%|██████▌   | 131/200 [00:02<00:01, 50.57it/s]
+frame loading (JPEG):  68%|██████▊   | 137/200 [00:02<00:01, 50.96it/s]
+frame loading (JPEG):  72%|███████▏  | 143/200 [00:02<00:01, 50.26it/s]
+frame loading (JPEG):  74%|███████▍  | 149/200 [00:02<00:00, 51.08it/s]
+frame loading (JPEG):  78%|███████▊  | 155/200 [00:02<00:00, 52.49it/s]
+frame loading (JPEG):  80%|████████  | 161/200 [00:02<00:00, 53.21it/s]
+frame loading (JPEG):  84%|████████▎ | 167/200 [00:03<00:00, 53.18it/s]
+frame loading (JPEG):  86%|████████▋ | 173/200 [00:03<00:00, 52.49it/s]
+frame loading (JPEG):  90%|████████▉ | 179/200 [00:03<00:00, 51.51it/s]
+frame loading (JPEG):  92%|█████████▎| 185/200 [00:03<00:00, 50.24it/s]
+frame loading (JPEG):  96%|█████████▌| 191/200 [00:03<00:00, 49.71it/s]
+frame loading (JPEG):  98%|█████████▊| 196/200 [00:03<00:00, 47.66it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:03<00:00, 53.32it/s]
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 3/200 [00:00<00:07, 27.72it/s]
+propagate in video:   4%|▎         | 7/200 [00:00<00:05, 32.36it/s]
+propagate in video:   6%|▌         | 11/200 [00:00<00:06, 29.72it/s]
+propagate in video:   8%|▊         | 15/200 [00:00<00:06, 30.33it/s]
+propagate in video:  10%|█         | 20/200 [00:00<00:05, 34.73it/s]
+propagate in video:  12%|█▎        | 25/200 [00:00<00:04, 37.65it/s]
+propagate in video:  14%|█▍        | 29/200 [00:00<00:04, 34.52it/s]
+propagate in video:  16%|█▋        | 33/200 [00:00<00:04, 35.38it/s]
+propagate in video:  18%|█▊        | 37/200 [00:01<00:04, 36.48it/s]
+propagate in video:  20%|██        | 41/200 [00:01<00:04, 32.92it/s]
+propagate in video:  22%|██▎       | 45/200 [00:01<00:04, 34.11it/s]
+propagate in video:  24%|██▍       | 49/200 [00:01<00:05, 29.75it/s]
+propagate in video:  26%|██▋       | 53/200 [00:01<00:04, 31.87it/s]
+propagate in video:  28%|██▊       | 57/200 [00:01<00:04, 31.12it/s]
+propagate in video:  30%|███       | 61/200 [00:01<00:04, 30.37it/s]
+propagate in video:  32%|███▎      | 65/200 [00:01<00:04, 32.21it/s]
+propagate in video:  34%|███▍      | 69/200 [00:02<00:03, 33.09it/s]
+propagate in video:  36%|███▋      | 73/200 [00:02<00:03, 33.73it/s]
+propagate in video:  38%|███▊      | 77/200 [00:02<00:03, 34.79it/s]
+propagate in video:  40%|████      | 81/200 [00:02<00:03, 33.26it/s]
+propagate in video:  42%|████▎     | 85/200 [00:02<00:03, 33.98it/s]
+propagate in video:  44%|████▍     | 89/200 [00:02<00:03, 34.53it/s]
+propagate in video:  46%|████▋     | 93/200 [00:02<00:03, 34.70it/s]
+propagate in video:  48%|████▊     | 97/200 [00:02<00:03, 31.73it/s]
+propagate in video:  50%|█████     | 101/200 [00:03<00:03, 29.88it/s]
+propagate in video:  51%|█████     | 102/200 [00:03<00:03, 32.49it/s]
+      [重锚定 #1] 局部 100 (全局 900)
+
+propagate in video:   0%|          | 0/100 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 2/100 [00:00<00:03, 26.78it/s]
+      [重锚定 #2] 局部 106 (全局 906)
+
+propagate in video:   0%|          | 0/94 [00:00<?, ?it/s]
+propagate in video:   5%|▌         | 5/94 [00:00<00:01, 48.33it/s]
+propagate in video:  11%|█         | 10/94 [00:00<00:02, 33.79it/s]
+propagate in video:  15%|█▍        | 14/94 [00:00<00:02, 32.12it/s]
+propagate in video:  19%|█▉        | 18/94 [00:00<00:02, 30.17it/s]
+propagate in video:  23%|██▎       | 22/94 [00:00<00:02, 30.56it/s]
+propagate in video:  28%|██▊       | 26/94 [00:00<00:02, 30.88it/s]
+propagate in video:  32%|███▏      | 30/94 [00:00<00:02, 31.79it/s]
+propagate in video:  37%|███▋      | 35/94 [00:01<00:01, 33.81it/s]
+propagate in video:  41%|████▏     | 39/94 [00:01<00:01, 32.71it/s]
+propagate in video:  46%|████▌     | 43/94 [00:01<00:01, 32.63it/s]
+propagate in video:  50%|█████     | 47/94 [00:01<00:01, 33.74it/s]
+propagate in video:  54%|█████▍    | 51/94 [00:01<00:01, 32.69it/s]
+propagate in video:  59%|█████▊    | 55/94 [00:01<00:01, 29.48it/s]
+propagate in video:  64%|██████▍   | 60/94 [00:01<00:01, 33.09it/s]
+propagate in video:  69%|██████▉   | 65/94 [00:01<00:00, 36.00it/s]
+propagate in video:  73%|███████▎  | 69/94 [00:02<00:00, 30.95it/s]
+propagate in video:  78%|███████▊  | 73/94 [00:02<00:00, 30.37it/s]
+propagate in video:  82%|████████▏ | 77/94 [00:02<00:00, 28.92it/s]
+propagate in video:  85%|████████▌ | 80/94 [00:02<00:00, 26.82it/s]
+propagate in video:  88%|████████▊ | 83/94 [00:02<00:00, 26.62it/s]
+propagate in video:  91%|█████████▏| 86/94 [00:02<00:00, 26.36it/s]
+propagate in video:  95%|█████████▍| 89/94 [00:02<00:00, 26.58it/s]
+propagate in video:  99%|█████████▉| 93/94 [00:03<00:00, 29.54it/s]
+propagate in video: 100%|██████████| 94/94 [00:03<00:00, 30.92it/s]
+    完成 197 帧, 可信 194, 重锚定 2  [RAM 1.70GB  VRAM 271MB]
+[块 1000-1200) 200 帧, 有框 200  [RAM 1.70GB  VRAM 271MB]
+
+frame loading (JPEG):   0%|          | 0/200 [00:00<?, ?it/s]
+frame loading (JPEG):   4%|▍         | 8/200 [00:00<00:02, 76.59it/s]
+frame loading (JPEG):   8%|▊         | 16/200 [00:00<00:02, 75.10it/s]
+frame loading (JPEG):  12%|█▏        | 24/200 [00:00<00:02, 76.21it/s]
+frame loading (JPEG):  16%|█▌        | 32/200 [00:00<00:02, 70.81it/s]
+frame loading (JPEG):  20%|██        | 40/200 [00:00<00:02, 71.80it/s]
+frame loading (JPEG):  24%|██▍       | 48/200 [00:00<00:02, 64.78it/s]
+frame loading (JPEG):  28%|██▊       | 55/200 [00:00<00:02, 59.94it/s]
+frame loading (JPEG):  31%|███       | 62/200 [00:00<00:02, 55.46it/s]
+frame loading (JPEG):  34%|███▍      | 68/200 [00:01<00:02, 54.32it/s]
+frame loading (JPEG):  37%|███▋      | 74/200 [00:01<00:02, 53.67it/s]
+frame loading (JPEG):  40%|████      | 80/200 [00:01<00:02, 52.05it/s]
+frame loading (JPEG):  43%|████▎     | 86/200 [00:01<00:02, 51.74it/s]
+frame loading (JPEG):  46%|████▌     | 92/200 [00:01<00:02, 50.72it/s]
+frame loading (JPEG):  49%|████▉     | 98/200 [00:01<00:02, 49.46it/s]
+frame loading (JPEG):  52%|█████▏    | 104/200 [00:01<00:01, 50.32it/s]
+frame loading (JPEG):  55%|█████▌    | 110/200 [00:01<00:01, 50.70it/s]
+frame loading (JPEG):  58%|█████▊    | 116/200 [00:02<00:01, 51.17it/s]
+frame loading (JPEG):  61%|██████    | 122/200 [00:02<00:01, 51.25it/s]
+frame loading (JPEG):  64%|██████▍   | 128/200 [00:02<00:01, 50.09it/s]
+frame loading (JPEG):  67%|██████▋   | 134/200 [00:02<00:01, 51.30it/s]
+frame loading (JPEG):  70%|███████   | 140/200 [00:02<00:01, 50.43it/s]
+frame loading (JPEG):  73%|███████▎  | 146/200 [00:02<00:01, 50.27it/s]
+frame loading (JPEG):  76%|███████▋  | 153/200 [00:02<00:00, 53.10it/s]
+frame loading (JPEG):  80%|███████▉  | 159/200 [00:02<00:00, 54.25it/s]
+frame loading (JPEG):  82%|████████▎ | 165/200 [00:02<00:00, 53.71it/s]
+frame loading (JPEG):  86%|████████▌ | 171/200 [00:03<00:00, 53.22it/s]
+frame loading (JPEG):  88%|████████▊ | 177/200 [00:03<00:00, 49.38it/s]
+frame loading (JPEG):  91%|█████████ | 182/200 [00:03<00:00, 48.98it/s]
+frame loading (JPEG):  94%|█████████▍| 188/200 [00:03<00:00, 50.04it/s]
+frame loading (JPEG):  97%|█████████▋| 194/200 [00:03<00:00, 50.11it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:03<00:00, 51.38it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:03<00:00, 54.17it/s]
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 3/200 [00:00<00:08, 24.26it/s]
+propagate in video:   3%|▎         | 6/200 [00:00<00:08, 21.57it/s]
+propagate in video:   5%|▌         | 10/200 [00:00<00:06, 27.59it/s]
+propagate in video:   6%|▋         | 13/200 [00:00<00:06, 27.32it/s]
+propagate in video:   8%|▊         | 16/200 [00:00<00:06, 27.42it/s]
+propagate in video:  10%|█         | 20/200 [00:00<00:05, 30.52it/s]
+propagate in video:  12%|█▏        | 24/200 [00:00<00:06, 28.62it/s]
+propagate in video:  14%|█▎        | 27/200 [00:00<00:06, 27.55it/s]
+propagate in video:  16%|█▌        | 31/200 [00:01<00:05, 29.74it/s]
+propagate in video:  18%|█▊        | 35/200 [00:01<00:05, 29.47it/s]
+propagate in video:  20%|██        | 40/200 [00:01<00:05, 30.63it/s]
+propagate in video:  22%|██▏       | 44/200 [00:01<00:05, 30.42it/s]
+propagate in video:  24%|██▍       | 48/200 [00:01<00:04, 31.69it/s]
+propagate in video:  26%|██▌       | 52/200 [00:01<00:05, 29.05it/s]
+propagate in video:  28%|██▊       | 55/200 [00:01<00:05, 28.80it/s]
+propagate in video:  29%|██▉       | 58/200 [00:02<00:05, 26.97it/s]
+propagate in video:  32%|███▏      | 63/200 [00:02<00:04, 30.17it/s]
+propagate in video:  34%|███▎      | 67/200 [00:02<00:04, 31.85it/s]
+propagate in video:  36%|███▌      | 71/200 [00:02<00:04, 30.03it/s]
+propagate in video:  38%|███▊      | 75/200 [00:02<00:03, 31.42it/s]
+propagate in video:  40%|███▉      | 79/200 [00:02<00:03, 31.23it/s]
+propagate in video:  42%|████▏     | 83/200 [00:02<00:03, 32.86it/s]
+propagate in video:  44%|████▎     | 87/200 [00:02<00:03, 34.23it/s]
+propagate in video:  46%|████▌     | 91/200 [00:03<00:03, 31.16it/s]
+propagate in video:  48%|████▊     | 95/200 [00:03<00:03, 31.05it/s]
+propagate in video:  50%|████▉     | 99/200 [00:03<00:03, 31.08it/s]
+propagate in video:  52%|█████▏    | 103/200 [00:03<00:03, 28.79it/s]
+propagate in video:  54%|█████▎    | 107/200 [00:03<00:03, 30.04it/s]
+propagate in video:  56%|█████▌    | 111/200 [00:03<00:03, 28.58it/s]
+propagate in video:  57%|█████▊    | 115/200 [00:03<00:02, 29.79it/s]
+propagate in video:  60%|█████▉    | 119/200 [00:03<00:02, 30.04it/s]
+propagate in video:  62%|██████▏   | 123/200 [00:04<00:02, 27.40it/s]
+propagate in video:  64%|██████▎   | 127/200 [00:04<00:02, 29.10it/s]
+propagate in video:  65%|██████▌   | 130/200 [00:04<00:02, 28.10it/s]
+propagate in video:  67%|██████▋   | 134/200 [00:04<00:02, 27.68it/s]
+propagate in video:  69%|██████▉   | 138/200 [00:04<00:02, 28.41it/s]
+propagate in video:  71%|███████   | 142/200 [00:04<00:01, 29.70it/s]
+propagate in video:  73%|███████▎  | 146/200 [00:04<00:01, 31.87it/s]
+propagate in video:  75%|███████▌  | 150/200 [00:05<00:01, 28.16it/s]
+propagate in video:  76%|███████▋  | 153/200 [00:05<00:01, 28.12it/s]
+propagate in video:  78%|███████▊  | 156/200 [00:05<00:01, 27.52it/s]
+propagate in video:  80%|████████  | 160/200 [00:05<00:01, 28.60it/s]
+propagate in video:  82%|████████▏ | 164/200 [00:05<00:01, 31.00it/s]
+propagate in video:  84%|████████▍ | 168/200 [00:05<00:00, 32.19it/s]
+propagate in video:  86%|████████▌ | 172/200 [00:05<00:00, 33.28it/s]
+propagate in video:  88%|████████▊ | 177/200 [00:05<00:00, 37.03it/s]
+propagate in video:  90%|█████████ | 181/200 [00:05<00:00, 37.11it/s]
+propagate in video:  92%|█████████▎| 185/200 [00:06<00:00, 35.60it/s]
+propagate in video:  94%|█████████▍| 189/200 [00:06<00:00, 33.49it/s]
+propagate in video:  96%|█████████▋| 193/200 [00:06<00:00, 31.23it/s]
+propagate in video:  98%|█████████▊| 197/200 [00:06<00:00, 29.36it/s]
+propagate in video: 100%|██████████| 200/200 [00:06<00:00, 30.23it/s]
+    完成 200 帧, 可信 200, 重锚定 0  [RAM 2.29GB  VRAM 271MB]
+[块 1200-1400) 200 帧, 有框 200  [RAM 2.29GB  VRAM 271MB]
+
+frame loading (JPEG):   0%|          | 0/200 [00:00<?, ?it/s]
+frame loading (JPEG):   4%|▎         | 7/200 [00:00<00:02, 68.90it/s]
+frame loading (JPEG):   8%|▊         | 15/200 [00:00<00:02, 69.00it/s]
+frame loading (JPEG):  12%|█▏        | 23/200 [00:00<00:02, 72.33it/s]
+frame loading (JPEG):  16%|█▌        | 31/200 [00:00<00:02, 73.27it/s]
+frame loading (JPEG):  20%|█▉        | 39/200 [00:00<00:02, 74.58it/s]
+frame loading (JPEG):  24%|██▎       | 47/200 [00:00<00:02, 71.10it/s]
+frame loading (JPEG):  28%|██▊       | 55/200 [00:00<00:02, 63.55it/s]
+frame loading (JPEG):  31%|███       | 62/200 [00:00<00:02, 58.07it/s]
+frame loading (JPEG):  34%|███▍      | 68/200 [00:01<00:02, 55.10it/s]
+frame loading (JPEG):  37%|███▋      | 74/200 [00:01<00:02, 53.05it/s]
+frame loading (JPEG):  40%|████      | 80/200 [00:01<00:02, 51.26it/s]
+frame loading (JPEG):  43%|████▎     | 86/200 [00:01<00:02, 51.88it/s]
+frame loading (JPEG):  46%|████▌     | 92/200 [00:01<00:02, 51.03it/s]
+frame loading (JPEG):  49%|████▉     | 98/200 [00:01<00:01, 51.84it/s]
+frame loading (JPEG):  52%|█████▏    | 104/200 [00:01<00:01, 48.83it/s]
+frame loading (JPEG):  55%|█████▍    | 109/200 [00:01<00:01, 46.62it/s]
+frame loading (JPEG):  57%|█████▊    | 115/200 [00:02<00:01, 48.60it/s]
+frame loading (JPEG):  60%|██████    | 120/200 [00:02<00:01, 44.14it/s]
+frame loading (JPEG):  62%|██████▎   | 125/200 [00:02<00:01, 45.13it/s]
+frame loading (JPEG):  65%|██████▌   | 130/200 [00:02<00:01, 46.12it/s]
+frame loading (JPEG):  68%|██████▊   | 135/200 [00:02<00:01, 46.50it/s]
+frame loading (JPEG):  70%|███████   | 140/200 [00:02<00:01, 45.94it/s]
+frame loading (JPEG):  72%|███████▎  | 145/200 [00:02<00:01, 46.57it/s]
+frame loading (JPEG):  75%|███████▌  | 150/200 [00:02<00:01, 44.66it/s]
+frame loading (JPEG):  78%|███████▊  | 155/200 [00:02<00:01, 44.52it/s]
+frame loading (JPEG):  80%|████████  | 160/200 [00:03<00:00, 42.64it/s]
+frame loading (JPEG):  82%|████████▎ | 165/200 [00:03<00:00, 43.93it/s]
+frame loading (JPEG):  85%|████████▌ | 170/200 [00:03<00:00, 44.76it/s]
+frame loading (JPEG):  88%|████████▊ | 175/200 [00:03<00:00, 45.87it/s]
+frame loading (JPEG):  90%|█████████ | 181/200 [00:03<00:00, 47.79it/s]
+frame loading (JPEG):  93%|█████████▎| 186/200 [00:03<00:00, 45.99it/s]
+frame loading (JPEG):  96%|█████████▌| 191/200 [00:03<00:00, 44.60it/s]
+frame loading (JPEG):  98%|█████████▊| 196/200 [00:03<00:00, 45.09it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:03<00:00, 50.66it/s]
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 4/200 [00:00<00:06, 31.08it/s]
+propagate in video:   4%|▍         | 8/200 [00:00<00:05, 35.15it/s]
+propagate in video:   6%|▌         | 12/200 [00:00<00:05, 31.65it/s]
+propagate in video:   8%|▊         | 16/200 [00:00<00:05, 30.85it/s]
+propagate in video:  10%|█         | 20/200 [00:00<00:06, 28.44it/s]
+propagate in video:  12%|█▏        | 24/200 [00:00<00:05, 30.23it/s]
+propagate in video:  14%|█▍        | 28/200 [00:00<00:05, 28.68it/s]
+propagate in video:  16%|█▌        | 32/200 [00:01<00:05, 29.80it/s]
+propagate in video:  18%|█▊        | 36/200 [00:01<00:05, 28.70it/s]
+propagate in video:  20%|██        | 40/200 [00:01<00:05, 29.97it/s]
+propagate in video:  22%|██▏       | 44/200 [00:01<00:04, 31.87it/s]
+propagate in video:  24%|██▍       | 48/200 [00:01<00:04, 31.87it/s]
+propagate in video:  26%|██▌       | 52/200 [00:01<00:04, 32.35it/s]
+propagate in video:  28%|██▊       | 56/200 [00:01<00:04, 31.01it/s]
+propagate in video:  30%|███       | 60/200 [00:01<00:04, 31.18it/s]
+propagate in video:  32%|███▏      | 64/200 [00:02<00:04, 30.00it/s]
+propagate in video:  34%|███▍      | 68/200 [00:02<00:04, 29.22it/s]
+propagate in video:  36%|███▌      | 72/200 [00:02<00:04, 30.66it/s]
+propagate in video:  38%|███▊      | 76/200 [00:02<00:04, 29.42it/s]
+propagate in video:  40%|███▉      | 79/200 [00:02<00:04, 29.14it/s]
+propagate in video:  41%|████      | 82/200 [00:02<00:04, 27.77it/s]
+propagate in video:  42%|████▎     | 85/200 [00:02<00:04, 27.47it/s]
+propagate in video:  44%|████▍     | 89/200 [00:02<00:03, 29.24it/s]
+propagate in video:  46%|████▌     | 92/200 [00:03<00:03, 28.36it/s]
+propagate in video:  48%|████▊     | 96/200 [00:03<00:03, 29.11it/s]
+propagate in video:  50%|████▉     | 99/200 [00:03<00:03, 27.41it/s]
+propagate in video:  51%|█████     | 102/200 [00:03<00:03, 27.57it/s]
+propagate in video:  52%|█████▎    | 105/200 [00:03<00:03, 27.03it/s]
+propagate in video:  54%|█████▍    | 108/200 [00:03<00:03, 25.46it/s]
+propagate in video:  56%|█████▌    | 111/200 [00:03<00:03, 23.33it/s]
+propagate in video:  57%|█████▋    | 114/200 [00:03<00:03, 22.65it/s]
+propagate in video:  59%|█████▉    | 118/200 [00:04<00:03, 25.62it/s]
+propagate in video:  61%|██████    | 122/200 [00:04<00:02, 27.06it/s]
+propagate in video:  62%|██████▎   | 125/200 [00:04<00:02, 27.64it/s]
+propagate in video:  64%|██████▍   | 129/200 [00:04<00:02, 27.21it/s]
+propagate in video:  66%|██████▋   | 133/200 [00:04<00:02, 29.37it/s]
+propagate in video:  68%|██████▊   | 136/200 [00:04<00:02, 27.29it/s]
+propagate in video:  70%|███████   | 140/200 [00:04<00:02, 27.48it/s]
+propagate in video:  72%|███████▏  | 143/200 [00:04<00:02, 27.77it/s]
+propagate in video:  74%|███████▎  | 147/200 [00:05<00:01, 29.41it/s]
+propagate in video:  76%|███████▌  | 151/200 [00:05<00:01, 30.81it/s]
+propagate in video:  78%|███████▊  | 155/200 [00:05<00:01, 31.18it/s]
+propagate in video:  80%|███████▉  | 159/200 [00:05<00:01, 30.90it/s]
+propagate in video:  82%|████████▏ | 163/200 [00:05<00:01, 28.86it/s]
+propagate in video:  83%|████████▎ | 166/200 [00:05<00:01, 26.35it/s]
+propagate in video:  85%|████████▌ | 170/200 [00:05<00:01, 27.27it/s]
+propagate in video:  86%|████████▋ | 173/200 [00:06<00:01, 26.96it/s]
+propagate in video:  88%|████████▊ | 177/200 [00:06<00:00, 28.56it/s]
+propagate in video:  90%|█████████ | 181/200 [00:06<00:00, 29.68it/s]
+propagate in video:  92%|█████████▏| 184/200 [00:06<00:00, 29.36it/s]
+propagate in video:  94%|█████████▍| 188/200 [00:06<00:00, 31.10it/s]
+propagate in video:  96%|█████████▌| 192/200 [00:06<00:00, 29.68it/s]
+propagate in video:  98%|█████████▊| 196/200 [00:06<00:00, 30.71it/s]
+propagate in video: 100%|██████████| 200/200 [00:06<00:00, 31.65it/s]
+propagate in video: 100%|██████████| 200/200 [00:06<00:00, 29.02it/s]
+    完成 200 帧, 可信 200, 重锚定 0  [RAM 1.70GB  VRAM 271MB]
+[块 1400-1600) 200 帧, 有框 200  [RAM 1.70GB  VRAM 271MB]
+
+frame loading (JPEG):   0%|          | 0/200 [00:00<?, ?it/s]
+frame loading (JPEG):   2%|▎         | 5/200 [00:00<00:04, 48.02it/s]
+frame loading (JPEG):   5%|▌         | 10/200 [00:00<00:04, 43.19it/s]
+frame loading (JPEG):   8%|▊         | 15/200 [00:00<00:04, 43.08it/s]
+frame loading (JPEG):  10%|█         | 20/200 [00:00<00:04, 41.80it/s]
+frame loading (JPEG):  12%|█▎        | 25/200 [00:00<00:04, 43.72it/s]
+frame loading (JPEG):  15%|█▌        | 30/200 [00:00<00:03, 44.62it/s]
+frame loading (JPEG):  18%|█▊        | 35/200 [00:00<00:03, 45.69it/s]
+frame loading (JPEG):  20%|██        | 40/200 [00:00<00:03, 46.54it/s]
+frame loading (JPEG):  22%|██▎       | 45/200 [00:01<00:03, 44.98it/s]
+frame loading (JPEG):  25%|██▌       | 50/200 [00:01<00:03, 41.33it/s]
+frame loading (JPEG):  28%|██▊       | 55/200 [00:01<00:03, 42.62it/s]
+frame loading (JPEG):  30%|███       | 60/200 [00:01<00:03, 42.72it/s]
+frame loading (JPEG):  32%|███▎      | 65/200 [00:01<00:03, 43.11it/s]
+frame loading (JPEG):  36%|███▌      | 71/200 [00:01<00:02, 45.01it/s]
+frame loading (JPEG):  38%|███▊      | 76/200 [00:01<00:02, 42.99it/s]
+frame loading (JPEG):  40%|████      | 81/200 [00:01<00:02, 42.44it/s]
+frame loading (JPEG):  43%|████▎     | 86/200 [00:01<00:02, 43.23it/s]
+frame loading (JPEG):  46%|████▌     | 91/200 [00:02<00:02, 44.01it/s]
+frame loading (JPEG):  48%|████▊     | 96/200 [00:02<00:02, 44.95it/s]
+frame loading (JPEG):  50%|█████     | 101/200 [00:02<00:02, 45.08it/s]
+frame loading (JPEG):  53%|█████▎    | 106/200 [00:02<00:02, 42.17it/s]
+frame loading (JPEG):  56%|█████▌    | 111/200 [00:02<00:02, 41.20it/s]
+frame loading (JPEG):  58%|█████▊    | 116/200 [00:02<00:01, 42.89it/s]
+frame loading (JPEG):  60%|██████    | 121/200 [00:02<00:01, 42.59it/s]
+frame loading (JPEG):  63%|██████▎   | 126/200 [00:02<00:01, 42.56it/s]
+frame loading (JPEG):  66%|██████▌   | 131/200 [00:03<00:01, 43.69it/s]
+frame loading (JPEG):  68%|██████▊   | 136/200 [00:03<00:01, 43.91it/s]
+frame loading (JPEG):  70%|███████   | 141/200 [00:03<00:01, 43.51it/s]
+frame loading (JPEG):  73%|███████▎  | 146/200 [00:03<00:01, 44.99it/s]
+frame loading (JPEG):  76%|███████▌  | 151/200 [00:03<00:01, 45.76it/s]
+frame loading (JPEG):  78%|███████▊  | 156/200 [00:03<00:00, 46.70it/s]
+frame loading (JPEG):  80%|████████  | 161/200 [00:03<00:00, 46.41it/s]
+frame loading (JPEG):  84%|████████▎ | 167/200 [00:03<00:00, 48.10it/s]
+frame loading (JPEG):  86%|████████▌ | 172/200 [00:03<00:00, 46.65it/s]
+frame loading (JPEG):  88%|████████▊ | 177/200 [00:03<00:00, 47.14it/s]
+frame loading (JPEG):  91%|█████████ | 182/200 [00:04<00:00, 46.95it/s]
+frame loading (JPEG):  94%|█████████▎| 187/200 [00:04<00:00, 44.48it/s]
+frame loading (JPEG):  96%|█████████▌| 192/200 [00:04<00:00, 45.02it/s]
+frame loading (JPEG):  98%|█████████▊| 197/200 [00:04<00:00, 42.47it/s]
+frame loading (JPEG): 100%|██████████| 200/200 [00:04<00:00, 44.12it/s]
+
+propagate in video:   0%|          | 0/200 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 3/200 [00:00<00:08, 22.03it/s]
+propagate in video:   3%|▎         | 6/200 [00:00<00:08, 23.47it/s]
+propagate in video:   5%|▌         | 10/200 [00:00<00:07, 26.21it/s]
+propagate in video:   6%|▋         | 13/200 [00:00<00:07, 25.57it/s]
+propagate in video:   8%|▊         | 17/200 [00:00<00:06, 27.86it/s]
+propagate in video:  10%|█         | 21/200 [00:00<00:06, 29.26it/s]
+propagate in video:  12%|█▏        | 24/200 [00:00<00:05, 29.41it/s]
+propagate in video:  14%|█▎        | 27/200 [00:00<00:06, 28.70it/s]
+propagate in video:  16%|█▌        | 31/200 [00:01<00:05, 31.29it/s]
+propagate in video:  18%|█▊        | 35/200 [00:01<00:05, 31.16it/s]
+propagate in video:  20%|█▉        | 39/200 [00:01<00:05, 30.92it/s]
+propagate in video:  22%|██▏       | 43/200 [00:01<00:05, 29.48it/s]
+propagate in video:  23%|██▎       | 46/200 [00:01<00:05, 29.25it/s]
+propagate in video:  24%|██▍       | 49/200 [00:01<00:05, 27.31it/s]
+propagate in video:  26%|██▌       | 52/200 [00:01<00:05, 26.39it/s]
+propagate in video:  28%|██▊       | 56/200 [00:01<00:05, 28.56it/s]
+propagate in video:  30%|██▉       | 59/200 [00:02<00:05, 26.36it/s]
+propagate in video:  32%|███▏      | 63/200 [00:02<00:04, 29.08it/s]
+propagate in video:  34%|███▎      | 67/200 [00:02<00:04, 30.84it/s]
+propagate in video:  36%|███▌      | 71/200 [00:02<00:04, 29.85it/s]
+propagate in video:  38%|███▊      | 75/200 [00:02<00:04, 27.62it/s]
+propagate in video:  40%|███▉      | 79/200 [00:02<00:04, 29.06it/s]
+propagate in video:  42%|████▏     | 83/200 [00:02<00:03, 30.48it/s]
+propagate in video:  44%|████▎     | 87/200 [00:03<00:03, 30.63it/s]
+propagate in video:  46%|████▌     | 91/200 [00:03<00:03, 30.30it/s]
+propagate in video:  48%|████▊     | 95/200 [00:03<00:03, 29.73it/s]
+propagate in video:  50%|████▉     | 99/200 [00:03<00:03, 31.10it/s]
+propagate in video:  52%|█████▏    | 103/200 [00:03<00:03, 28.50it/s]
+propagate in video:  53%|█████▎    | 106/200 [00:03<00:03, 27.21it/s]
+propagate in video:  55%|█████▍    | 109/200 [00:03<00:03, 27.86it/s]
+propagate in video:  56%|█████▌    | 112/200 [00:03<00:03, 28.26it/s]
+propagate in video:  58%|█████▊    | 116/200 [00:04<00:02, 29.79it/s]
+propagate in video:  60%|██████    | 120/200 [00:04<00:02, 31.58it/s]
+propagate in video:  62%|██████▏   | 124/200 [00:04<00:02, 29.48it/s]
+propagate in video:  64%|██████▍   | 128/200 [00:04<00:02, 28.84it/s]
+propagate in video:  66%|██████▌   | 131/200 [00:04<00:02, 28.55it/s]
+propagate in video:  67%|██████▋   | 134/200 [00:04<00:02, 28.01it/s]
+propagate in video:  68%|██████▊   | 137/200 [00:04<00:02, 27.88it/s]
+propagate in video:  70%|███████   | 140/200 [00:04<00:02, 27.00it/s]
+propagate in video:  72%|███████▏  | 143/200 [00:04<00:02, 27.14it/s]
+propagate in video:  74%|███████▎  | 147/200 [00:05<00:01, 28.58it/s]
+propagate in video:  76%|███████▌  | 151/200 [00:05<00:01, 30.13it/s]
+propagate in video:  78%|███████▊  | 155/200 [00:05<00:01, 30.33it/s]
+propagate in video:  80%|███████▉  | 159/200 [00:05<00:01, 28.82it/s]
+propagate in video:  81%|████████  | 162/200 [00:05<00:01, 28.61it/s]
+propagate in video:  82%|████████▎ | 165/200 [00:05<00:01, 27.07it/s]
+propagate in video:  84%|████████▍ | 168/200 [00:05<00:01, 27.61it/s]
+propagate in video:  86%|████████▌ | 172/200 [00:05<00:00, 30.09it/s]
+propagate in video:  88%|████████▊ | 176/200 [00:06<00:00, 30.32it/s]
+propagate in video:  90%|█████████ | 180/200 [00:06<00:00, 32.50it/s]
+propagate in video:  92%|█████████▏| 184/200 [00:06<00:00, 29.62it/s]
+propagate in video:  94%|█████████▍| 188/200 [00:06<00:00, 29.84it/s]
+propagate in video:  96%|█████████▌| 192/200 [00:06<00:00, 28.94it/s]
+propagate in video:  98%|█████████▊| 195/200 [00:06<00:00, 26.72it/s]
+propagate in video:  99%|█████████▉| 198/200 [00:06<00:00, 27.22it/s]
+propagate in video: 100%|██████████| 200/200 [00:06<00:00, 28.83it/s]
+    完成 200 帧, 可信 200, 重锚定 0  [RAM 2.29GB  VRAM 271MB]
+[块 1600-1753) 153 帧, 有框 53  [RAM 2.29GB  VRAM 271MB]
+
+frame loading (JPEG):   0%|          | 0/153 [00:00<?, ?it/s]
+frame loading (JPEG):   3%|▎         | 5/153 [00:00<00:03, 41.11it/s]
+frame loading (JPEG):   7%|▋         | 10/153 [00:00<00:03, 43.96it/s]
+frame loading (JPEG):  10%|▉         | 15/153 [00:00<00:03, 45.99it/s]
+frame loading (JPEG):  13%|█▎        | 20/153 [00:00<00:02, 44.72it/s]
+frame loading (JPEG):  16%|█▋        | 25/153 [00:00<00:02, 45.57it/s]
+frame loading (JPEG):  20%|█▉        | 30/153 [00:00<00:02, 42.56it/s]
+frame loading (JPEG):  23%|██▎       | 35/153 [00:00<00:02, 43.20it/s]
+frame loading (JPEG):  26%|██▌       | 40/153 [00:00<00:02, 42.29it/s]
+frame loading (JPEG):  30%|███       | 46/153 [00:01<00:02, 45.88it/s]
+frame loading (JPEG):  33%|███▎      | 51/153 [00:01<00:02, 45.74it/s]
+frame loading (JPEG):  37%|███▋      | 56/153 [00:01<00:02, 46.70it/s]
+frame loading (JPEG):  40%|███▉      | 61/153 [00:01<00:02, 45.88it/s]
+frame loading (JPEG):  43%|████▎     | 66/153 [00:01<00:01, 46.18it/s]
+frame loading (JPEG):  46%|████▋     | 71/153 [00:01<00:01, 45.47it/s]
+frame loading (JPEG):  50%|████▉     | 76/153 [00:01<00:01, 45.25it/s]
+frame loading (JPEG):  53%|█████▎    | 81/153 [00:01<00:01, 43.87it/s]
+frame loading (JPEG):  56%|█████▌    | 86/153 [00:01<00:01, 44.17it/s]
+frame loading (JPEG):  59%|█████▉    | 91/153 [00:02<00:01, 44.77it/s]
+frame loading (JPEG):  63%|██████▎   | 96/153 [00:02<00:01, 44.33it/s]
+frame loading (JPEG):  66%|██████▌   | 101/153 [00:02<00:01, 42.09it/s]
+frame loading (JPEG):  69%|██████▉   | 106/153 [00:02<00:01, 42.31it/s]
+frame loading (JPEG):  73%|███████▎  | 111/153 [00:02<00:00, 43.07it/s]
+frame loading (JPEG):  76%|███████▌  | 116/153 [00:02<00:00, 43.39it/s]
+frame loading (JPEG):  80%|███████▉  | 122/153 [00:02<00:00, 44.81it/s]
+frame loading (JPEG):  84%|████████▎ | 128/153 [00:02<00:00, 48.27it/s]
+frame loading (JPEG):  87%|████████▋ | 133/153 [00:02<00:00, 46.16it/s]
+frame loading (JPEG):  90%|█████████ | 138/153 [00:03<00:00, 46.97it/s]
+frame loading (JPEG):  94%|█████████▍| 144/153 [00:03<00:00, 48.50it/s]
+frame loading (JPEG):  98%|█████████▊| 150/153 [00:03<00:00, 49.17it/s]
+frame loading (JPEG): 100%|██████████| 153/153 [00:03<00:00, 45.34it/s]
+
+propagate in video:   0%|          | 0/153 [00:00<?, ?it/s]
+propagate in video:   2%|▏         | 3/153 [00:00<00:07, 19.51it/s]
+propagate in video:   4%|▍         | 6/153 [00:00<00:06, 22.35it/s]
+propagate in video:   6%|▌         | 9/153 [00:00<00:06, 22.57it/s]
+propagate in video:   8%|▊         | 12/153 [00:00<00:05, 23.82it/s]
+propagate in video:  10%|▉         | 15/153 [00:00<00:05, 24.24it/s]
+propagate in video:  12%|█▏        | 18/153 [00:00<00:05, 25.20it/s]
+propagate in video:  14%|█▎        | 21/153 [00:00<00:05, 22.93it/s]
+propagate in video:  16%|█▌        | 24/153 [00:01<00:05, 24.01it/s]
+propagate in video:  18%|█▊        | 27/153 [00:01<00:05, 24.64it/s]
+propagate in video:  20%|█▉        | 30/153 [00:01<00:04, 25.59it/s]
+propagate in video:  22%|██▏       | 34/153 [00:01<00:04, 28.37it/s]
+propagate in video:  25%|██▍       | 38/153 [00:01<00:03, 30.01it/s]
+propagate in video:  27%|██▋       | 42/153 [00:01<00:03, 30.65it/s]
+propagate in video:  31%|███       | 47/153 [00:01<00:03, 33.68it/s]
+propagate in video:  33%|███▎      | 51/153 [00:01<00:03, 31.05it/s]
+propagate in video:  36%|███▌      | 55/153 [00:02<00:03, 30.66it/s]
+propagate in video:  39%|███▊      | 59/153 [00:02<00:02, 32.22it/s]
+propagate in video:  41%|████      | 63/153 [00:02<00:02, 31.32it/s]
+propagate in video:  44%|████▍     | 67/153 [00:02<00:02, 31.70it/s]
+propagate in video:  46%|████▋     | 71/153 [00:02<00:02, 33.56it/s]
+propagate in video:  49%|████▉     | 75/153 [00:02<00:02, 34.54it/s]
+propagate in video:  52%|█████▏    | 79/153 [00:02<00:02, 34.03it/s]
+propagate in video:  54%|█████▍    | 83/153 [00:02<00:02, 34.16it/s]
+propagate in video:  57%|█████▋    | 87/153 [00:02<00:01, 34.76it/s]
+propagate in video:  60%|██████    | 92/153 [00:03<00:01, 36.74it/s]
+propagate in video:  63%|██████▎   | 97/153 [00:03<00:01, 37.54it/s]
+propagate in video:  66%|██████▌   | 101/153 [00:03<00:01, 37.01it/s]
+propagate in video:  69%|██████▊   | 105/153 [00:03<00:01, 36.42it/s]
+propagate in video:  71%|███████   | 109/153 [00:03<00:01, 36.62it/s]
+propagate in video:  74%|███████▍  | 113/153 [00:03<00:01, 36.55it/s]
+propagate in video:  77%|███████▋  | 118/153 [00:03<00:00, 38.14it/s]
+propagate in video:  80%|███████▉  | 122/153 [00:03<00:00, 37.35it/s]
+propagate in video:  82%|████████▏ | 126/153 [00:03<00:00, 35.83it/s]
+propagate in video:  85%|████████▍ | 130/153 [00:04<00:00, 35.48it/s]
+propagate in video:  88%|████████▊ | 135/153 [00:04<00:00, 36.58it/s]
+propagate in video:  92%|█████████▏| 140/153 [00:04<00:00, 37.73it/s]
+propagate in video:  94%|█████████▍| 144/153 [00:04<00:00, 35.55it/s]
+propagate in video:  97%|█████████▋| 148/153 [00:04<00:00, 35.20it/s]
+propagate in video:  99%|█████████▉| 152/153 [00:04<00:00, 32.15it/s]
+propagate in video: 100%|██████████| 153/153 [00:04<00:00, 31.92it/s]
+    完成 153 帧, 可信 33, 重锚定 0  [RAM 1.71GB  VRAM 271MB]
+[完成] 1735 帧, 97.2s (17.9 fps)
+[写入] E:\RocketAttitudeEstimation\runs\seg\bounds_g360.npz  shape=(1753, 360)
+[写入] E:\RocketAttitudeEstimation\runs\seg\mask_stats_g360.csv / seg_meta_g360.json
+[退出码 0  用时 100.9s]
+
+$ E:\Anaconda\envs\yolo26\python.exe E:\RocketAttitudeEstimation\scripts\rocket_mask_angle.py --tag g360 --dets-tag gentest
+[完成] 有效 1573/1753 帧  (无掩码 180, 拟合失败 0)
+       输出: 箭体轴线相对**图像竖直**的绝对倾角 φ(t)(不做相对姿态, 无参考段先验)
+[写入] E:\RocketAttitudeEstimation\runs\angle_mask\angles_g360.csv / angles_g360.json
+[退出码 0  用时 4.5s]

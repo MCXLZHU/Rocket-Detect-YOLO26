@@ -85,13 +85,17 @@ def _stages(dets_tag: str, sam_tag: str):
         cmd = [PY, str(S / "diag_video_detections.py"), "--tag", dets_tag,
                "--conf", str(a.conf), "--iou", str(a.iou)]
         if a.video:
-            cmd += ["--video", a.video]
+            cmd += ["--video", a.video]      # 可以是项目外的完整路径
+        if getattr(a, "video_dir", None):
+            cmd += ["--video-dir", a.video_dir]
         return [cmd]
 
     def stabilize(a):
-        out = [[PY, str(S / "validate_stabilize.py")]]
+        out = [[PY, str(S / "validate_stabilize.py"),
+                "--dets-tag", dets_tag]]
         if a.video_out:
-            out.append([PY, str(S / "track_video.py")])
+            out.append([PY, str(S / "track_video.py"),
+                        "--dets-tag", dets_tag])
         return out
 
     def attitude(a):
@@ -170,8 +174,6 @@ def summarize(dets_tag: str, sam_tag: str) -> str:
     def p(s=""):
         L.append(s)
 
-    groups = [(45, 69), (25, 45), (11, 25)]     # 分段统计用的时段
-
     meta_f = DIAG / f"dets_{dets_tag}.json"
     att_f = ATT / "attitude.json"
     p("=" * 78)
@@ -216,13 +218,15 @@ def summarize(dets_tag: str, sam_tag: str) -> str:
         p()
 
     # --- 第 3 步: 倾角 φ(t) —— SAM 2.1 掩码路线(主线) ---
+    # 只认 sam_tag 指定的那一份产物。
+    # ⚠️ 这里**故意不做"退而求其次取最新文件"的兜底**: 多视频共存时那个兜底会把
+    # 别的视频的结果当成这次的报出来(踩过), 比"什么都不报"危险得多。
     am = ANGM / f"angles_{sam_tag}.json"
-    if not am.exists() and ANGM.exists():
-        # 退化时取"最新的非冒烟"产物, 不要按文件名排序(angles_s512 < angles_smoke,
-        # 排序会把冒烟结果当成正式结果)。
-        cand = [x for x in ANGM.glob("angles_*.json") if "smoke" not in x.name]
-        if cand:
-            am = max(cand, key=lambda x: x.stat().st_mtime)
+    if not am.exists():
+        p("-" * 78)
+        p(f"[3] 倾角 φ(t): 缺少 runs/angle_mask/angles_{sam_tag}.json")
+        p(f"      先跑: pipeline.py --only seg,angle_mask --sam-tag {sam_tag}")
+        p()
     if am.exists():
         a2 = json.loads(am.read_text(encoding="utf-8"))
         fps2 = a2["info"]["fps"]
@@ -232,49 +236,71 @@ def summarize(dets_tag: str, sam_tag: str) -> str:
         p(f"[3] 倾角 φ(t) —— SAM 2.1 掩码路线  (tag={stag}, "
           f"imgsz={a2['info'].get('image_size', '?')}, "
           f"{a2['info'].get('model', '?')})")
-        p(f"      有效帧 {len(ok2)}/{len(a2['frames'])}   基准 φ_ref = "
-          f"{a2['info']['ref']:+.3f}°(落地 45-66s)")
-        for lo, hi in groups:
-            m = [r["phi_deg"] for r in ok2 if lo <= r["frame"] / fps2 < hi]
-            if len(m) < 3:
-                continue
-            mu = sum(m) / len(m)
-            sd = (sum((x - mu) ** 2 for x in m) / len(m)) ** 0.5
-            p(f"      {lo:>2}-{hi}s: n={len(m):>3}  φ中位 "
-              f"{sorted(m)[len(m) // 2]:+.2f}°  σ {sd:.3f}°  "
-              f"极差 {max(m) - min(m):.2f}°")
-        cmp_f = ANGM / f"compare_{stag}.txt"
-        if cmp_f.exists():
-            for ln in cmp_f.read_text(encoding="utf-8").splitlines():
-                if "落地段" in ln or "Δφ = SAM" in ln or "w_body(SAM" in ln:
-                    p("      " + ln.strip())
+        p(f"      有效帧 {len(ok2)}/{len(a2['frames'])}   "
+          f"(φ = 箭体轴线 vs 图像竖直的**绝对**夹角, 无参考段)")
+        # 分档按有效区间等分(不写死时间): 换视频/换时长都不用改
+        if ok2:
+            t0_ = ok2[0]["frame"] / fps2
+            t1_ = (ok2[-1]["frame"] + 1) / fps2
+            sp_ = max(t1_ - t0_, 1e-6)
+            for i in range(3):
+                lo = t0_ + sp_ * i / 3
+                hi = t0_ + sp_ * (i + 1) / 3
+                m = [r["phi_deg"] for r in ok2
+                     if lo <= r["frame"] / fps2 < hi and r["phi_deg"] is not None]
+                if len(m) < 3:
+                    continue
+                mu = sum(m) / len(m)
+                sd = (sum((x - mu) ** 2 for x in m) / len(m)) ** 0.5
+                p(f"      第 {i + 1}/3 段 {lo:.0f}-{hi:.0f}s: n={len(m):>4}  "
+                  f"φ中位 {sorted(m)[len(m) // 2]:+.2f}°  σ {sd:.3f}°  "
+                  f"极差 {max(m) - min(m):.2f}°")
         p()
 
     if att_f.exists():
         at = json.loads(att_f.read_text(encoding="utf-8"))
+        a_src = at["info"].get("src_tag")
+        if a_src and a_src != sam_tag:
+            # attitudes 产物不带 tag(固定文件名), 多视频共存时会互相覆盖。
+            # 与其把别的视频的姿态混进来, 不如明确说"对不上"。
+            p("-" * 78)
+            p(f"[4] 姿态: runs/attitude/attitude.json 来自 src_tag={a_src}, "
+              f"与本次 sam_tag={sam_tag} 不一致 ⇒ 跳过")
+            p(f"      重跑: pipeline.py --only attitude --sam-tag {sam_tag}")
+            p()
+            att_f = None
+    if att_f and att_f.exists():
+        at = json.loads(att_f.read_text(encoding="utf-8"))
         fps = at["info"]["fps"]
         fr = at["frames"]
         p("-" * 78)
-        p("[4] 姿态")
+        p("[4] 姿态(绝对量, 不需要参考基准)"
+          f"   [src_tag={at['info'].get('src_tag', '?')}]")
         cv = [r for r in fr if r["cam_ncc"] is not None and r["cam_ncc"] >= 0.6]
-        for lo, hi, nm in ((45, 69, "落地段"), (11, 40, "下降段")):
+        ok = [r for r in fr if r["ok"]]
+        # 相机滚转: 按有效区间三段自适应, 不写死"落地段/下降段"
+        for i in range(3):
+            n_cv = len(cv)
+            if n_cv < 5:
+                break
+            ts = [r["t"] for r in cv]
+            lo = ts[0] + (ts[-1] - ts[0]) * i / 3
+            hi = ts[0] + (ts[-1] - ts[0]) * (i + 1) / 3
             m = [r["cam_roll"] for r in cv if lo <= r["t"] < hi]
             if len(m) < 5:
                 continue
             mu = sum(m) / len(m)
             sd = (sum((x - mu) ** 2 for x in m) / len(m)) ** 0.5
-            p(f"      相机滚转 {nm}: {mu:+.3f}° ± {sd:.3f}°  (n={len(m)})")
-        ok = [r for r in fr if r["ok"]]
-        land = [r for r in ok if 45 <= r["t"] < 69]
-        if land:
-            v = [r["phi_deg"] for r in land]
+            p(f"      相机滚转 第 {i + 1}/3 段 ({lo:.0f}-{hi:.0f}s): "
+              f"{mu:+.3f}° ± {sd:.3f}°  (n={len(m)})")
+        if ok:
+            v = [r["phi_deg"] for r in ok]
             mu = sum(v) / len(v)
             sd = (sum((x - mu) ** 2 for x in v) / len(v)) ** 0.5
-            top = sum(r["phi_vs_top"] for r in land) / len(land)
-            rel = [r["phi_rel"] for r in land if r["phi_rel"] is not None]
-            p(f"      落地段(45-69s) n={len(land)}: φ={mu:+.3f}°±{sd:.3f}°, "
-              f"90−|φ|={top:.2f}°(与图像上边缘的夹角), "
-              f"相对倾角中位 {sorted(rel)[len(rel) // 2]:+.3f}°")
+            top = sum(r["phi_vs_top"] for r in ok) / len(ok)
+            p(f"      全片有效帧 n={len(ok)}: φ={mu:+.3f}°±{sd:.3f}°, "
+              f"90−|φ| 均值 {top:.2f}°(与图像上边缘的夹角)")
+            p("      (注: 相对倾角 φ_rel 已废弃 —— 它依赖\"片尾落地即竖直\"的先验)")
         if math.isfinite(at["info"].get("l_over_d") or float("nan")):
             bet = [r["beta_deg"] for r in ok if r["beta_deg"] is not None]
             if bet:
@@ -311,7 +337,10 @@ def parse_args() -> argparse.Namespace:
         description="Rocket Attitude Estimation 流水线入口",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__.split("用法:")[-1])
-    p.add_argument("--video", default=None, help="视频路径, 默认自动找")
+    p.add_argument("--video", default=None,
+                   help="视频路径(可项目外); 不填则取 --video-dir 下最大的一个")
+    p.add_argument("--video-dir", default=None,
+                   help="在哪个目录里找视频, 默认项目根目录")
     p.add_argument("--only", default=None, help="只跑这些阶段(逗号分隔)")
     p.add_argument("--from", dest="frm", default=None, help="从该阶段开始(含)")
     p.add_argument("--to", default=None, help="跑到该阶段为止(含)")
@@ -427,7 +456,7 @@ def main() -> None:
                 break
 
     print()
-    print(summarize(dets_tag))
+    print(summarize(dets_tag, sam_tag))
     print()
     print(f"总用时 {time.time() - t_all:.1f}s" +
           (f"   失败阶段: {failed}" if failed else "   ✅ 全部完成"))

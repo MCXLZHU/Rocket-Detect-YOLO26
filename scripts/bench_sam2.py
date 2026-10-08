@@ -55,6 +55,7 @@ import cv2  # noqa: E402
 import torch  # noqa: E402
 
 from sam2.build_sam import build_sam2, build_sam2_video_predictor  # noqa: E402
+from video_io import resolve_video, video_key  # noqa: E402
 
 WEIGHTS = PROJECT / "weights"
 DIAG = PROJECT / "runs" / "diag"
@@ -255,8 +256,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="SAM 2.1 本机实时性基准")
     ap.add_argument("--model", default="tiny", choices=list(CFG_FILE))
     ap.add_argument("--image-size", type=int, default=1024)
-    ap.add_argument("--start", type=int, default=1400,
-                    help="抽帧起点(默认 1400 = 落地段, 箭体清晰)")
+    ap.add_argument("--dets-tag", default="iou70", help="读哪份检测产物")
+    ap.add_argument("--start", type=int, default=-1,
+                    help="抽帧起点; 默认 -1 = 自动取有箭体的区间的 60% 处")
     ap.add_argument("--frames", type=int, default=120)
     ap.add_argument("--prop", type=int, default=60, help="传播测多少帧")
     ap.add_argument("--half", action="store_true", help="fp16 autocast")
@@ -269,14 +271,24 @@ def main() -> None:
     a = ap.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    meta = json.loads((DIAG / "dets_iou70.json").read_text(encoding="utf-8"))
+    meta = json.loads((DIAG / f"dets_{a.dets_tag}.json").read_text(
+        encoding="utf-8"))
     vm = meta["meta"]
-    video = PROJECT / vm["video"]
+    video = resolve_video(vm)        # 支持项目外的视频(见 video_io.py)
+
+    # 起点留空时自动取: 有 RB 框区间的 60% 处(那里箭体已经足够大, 又不是片尾空镜)
+    if a.start < 0:
+        rb_all = [i for i, r in enumerate(meta["frames"])
+                  if any(b["c"] == 1 for b in r["b"])]
+        a.start = int(round(rb_all[0] + 0.6 * (rb_all[-1] - rb_all[0]))) \
+            if rb_all else 0
+        print(f"[起点] 自动取 {a.start}", flush=True)
 
     # 抽帧(用全局帧号命名)。
     # 注意: 目录名带上区间, 且**从不删除** —— 一次性删 >50 个文件会被宿主的安全策略
     # 拦成 SAFE_DELETE_BULK_CONFIRM_REQUIRED, 整条命令直接作废。
-    fdir = CACHE / f"frames_bench_{a.start}_{a.start + a.frames}"
+    # 带视频标识: 否则换视频后会复用上一个视频的帧(见 video_io.video_key)
+    fdir = CACHE / f"frames_bench_{video_key(vm)}_{a.start}_{a.start + a.frames}"
     have = len(list(fdir.glob("*.jpg"))) if fdir.exists() else 0
     if have == a.frames:
         n = have

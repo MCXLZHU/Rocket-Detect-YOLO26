@@ -112,17 +112,22 @@ def robust_line(ys: np.ndarray, xs: np.ndarray, iters: int = 5,
 # ==========================================================================
 @dataclass
 class SmoothConfig:
-    """只保留时序平滑/参考段需要的三个参数(原 AngleConfig 有 30 多个字段,
-    其余都是梯度边缘估计器专用的, 掩码路线用不到)。"""
     smooth_median: int = 5
     smooth_alpha: float = 0.35
-    ref_range: tuple = (45.0, 66.0)   # 落地静止段, 作为相对倾角的零点
+    # 参考段: **默认不做**。项目的交付量是"轴线相对图像竖直的绝对夹角 φ(t)",
+    # 它是纯几何量, 不需要任何参考; 早期版本拿"片尾火箭落地竖直"当已知真值去算
+    # 相对倾角 φ_rel, 那是**只对某一段视频成立**的先验, 换视频即失效, 已废弃。
+    # 这里保留字段只是为了让"确实有真值"的场合能显式打开。
+    ref_range: tuple | None = None
 
 
 def smooth_and_reference(results: list[AngleResult], fps: float,
                          cfg: SmoothConfig | None = None) -> float:
-    """中值窗 + 一阶低通 → `phi_smooth`, 逐帧差分 → `dphi_dt`,
-    再以落地段中位为基准 → `phi_rel`。返回基准值 φ_ref。
+    """中值窗 + 一阶低通 → `phi_smooth`; 逐帧差分 → `dphi_dt`。
+
+    **默认不产出 `phi_rel`**(返回 NaN): 相对倾角需要一个"参考姿态", 而唯一能拿到的
+    参考是"片尾火箭落地后竖直"——那是针对特定视频的先验, 换视频即失效。交付的绝对
+    夹角 φ(t) 本身不需要它。
 
     注意 `dphi_dt` 是**相邻帧**差分×fps: 逐帧噪声会被放大 30 倍, 画图/报数时
     应改用窗内中心差分(见 `sam_angle_viz.windowed_rate`)。
@@ -140,6 +145,8 @@ def smooth_and_reference(results: list[AngleResult], fps: float,
         if i > 0 and np.isfinite(results[i - 1].phi_smooth):
             r.dphi_dt = (r.phi_smooth - results[i - 1].phi_smooth) * fps
     rr = cfg.ref_range
+    if rr is None:
+        return float("nan")          # 默认路径: 只出绝对角, 不碰 φ_rel
     ref = [r.phi_smooth for r in results
            if r.ok and rr[0] <= r.frame / fps < rr[1]
            and np.isfinite(r.phi_smooth)]

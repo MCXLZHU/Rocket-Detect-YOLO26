@@ -31,7 +31,14 @@ def sd(v):
     return float(np.std(v)) if len(v) else 0.0
 
 
-d = json.loads((DIAG / "dets_iou70.json").read_text(encoding="utf-8"))
+import argparse  # noqa: E402
+
+_ap = argparse.ArgumentParser(description="检测稳定化前后对比")
+_ap.add_argument("--dets-tag", default="iou70", help="读哪份检测产物")
+_args = _ap.parse_args()
+
+d = json.loads((DIAG / f"dets_{_args.dets_tag}.json").read_text(
+    encoding="utf-8"))
 frames_raw = d["frames"]
 meta = d["meta"]
 fps = meta["fps"]
@@ -46,7 +53,7 @@ W0, W1 = rb_frames[0], rb_frames[-1]
 WIN = list(range(W0, W1 + 1))
 
 p("=" * 82)
-p("检测稳定化: 前后对比 (数据源 runs/diag/dets_iou70.json)")
+p(f"检测稳定化: 前后对比 (数据源 runs/diag/dets_{_args.dets_tag}.json)")
 p("=" * 82)
 p(f"视频 {meta['video']}")
 p(f"{W}x{H}  {fps:.2f} fps  {N} 帧")

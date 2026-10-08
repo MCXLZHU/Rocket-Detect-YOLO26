@@ -62,8 +62,18 @@ def main():
     p("=" * 82)
     p(f"视频 {info['video']}")
     p(f"{W}x{H} @ {fps:.2f}fps, {info['n_frame']} 帧")
-    p(f"落地竖直基准 φ_ref(45-66s) = {info['ref']:+.3f}°")
+    p("输出: 箭体轴线相对**图像竖直**的绝对倾角 φ(t) —— 纯几何量, 无需任何基准")
+    p("      (不再输出相对倾角 φ_rel: 它依赖\"片尾落地即竖直\"这个只对特定视频")
+    p("       成立的先验, 已废弃)")
     p()
+
+    # 有效区间的分位边界: 后面所有分段统计都用它, 不再写死秒数
+    ok_f = [r for r in res if r.ok and np.isfinite(r.phi_deg)]
+    t_lo = ok_f[0].t if ok_f else 0.0
+    t_hi = ok_f[-1].t if ok_f else 0.0
+    bins = [(t_lo, t_lo + (t_hi - t_lo) / 3, "前 1/3"),
+            (t_lo + (t_hi - t_lo) / 3, t_lo + 2 * (t_hi - t_lo) / 3, "中 1/3"),
+            (t_lo + 2 * (t_hi - t_lo) / 3, t_hi + 1e-6, "后 1/3")]
 
     # ---------- 1) 估计器灵敏度校验 ----------
     p("-" * 82)
@@ -117,37 +127,37 @@ def main():
         p(f"  有效帧的滚转: 中位 {np.median(rv):+.4f}°  σ {np.std(rv):.4f}°  "
           f"极差 [{rv.min():+.3f}, {rv.max():+.3f}]°")
         p()
-        p(f"  {'时段':>12} {'可信帧':>7} {'滚转中位':>10} {'滚转σ':>9} "
+        p(f"  {'时段':>18} {'可信帧':>7} {'滚转中位':>10} {'滚转σ':>9} "
           f"{'|滚转|max':>10}")
-        for lo, hi in ((11, 25), (25, 40), (40, 45), (45, 69)):
+        # 分档边界按有效区间三等分自适应(原来写死 11/25/40/45/69s)
+        for lo, hi, nm in bins:
             m = valid & (tsec >= lo) & (tsec < hi)
             if m.sum() < 3:
                 continue
-            p(f"  {f'{lo}-{hi}s':>12} {m.sum():>7} {np.median(roll[m]):>+10.3f} "
-              f"{np.std(roll[m]):>9.3f} {np.nanmax(np.abs(roll[m])):>10.3f}")
+            p(f"  {f'{nm} {lo:.0f}-{hi:.0f}s':>18} {m.sum():>7} "
+              f"{np.median(roll[m]):>+10.3f} {np.std(roll[m]):>9.3f} "
+              f"{np.nanmax(np.abs(roll[m])):>10.3f}")
         p()
-        land = valid & (tsec >= 45) & (tsec < 69)
-        des = valid & (tsec >= 11) & (tsec < 40)
-        w_land = np.nanmax(np.abs(roll[land])) if land.sum() else float("nan")
-        s_des = np.nanstd(roll[des]) if des.sum() else float("nan")
-        w_des = np.nanmax(np.abs(roll[des])) if des.sum() else float("nan")
-        p(f"  ✅ 落地段(45-69s): 滚转 {np.nanmedian(roll[land]):+.3f}° ± "
-          f"{np.nanstd(roll[land]):.3f}° (最大 {w_land:.3f}°) "
-          f"⇒ **相机静止, φ_ref 基准可靠**。")
-        p(f"  ⚠️ 下降段(11-40s): 滚转 σ {s_des:.3f}°, 最大 {w_des:.3f}° "
-          f"(最大值多半来自个别配准失效帧)")
-        p(f"     ⇒ 下降段的相对倾角应减去 cam_roll(t)(有效帧), 量级约 "
-          f"{s_des:.2f}°。")
-        p(f"  相机滚转对倾角测量的误差贡献: 落地段 <{w_land:.2f}°, "
-          f"下降段约 {s_des:.2f}°(1σ)")
+        s_all = np.nanstd(roll[valid]) if valid.sum() else float("nan")
+        w_all = np.nanmax(np.abs(roll[valid])) if valid.sum() else float("nan")
+        tail = valid & (tsec >= t_lo + 2 * (t_hi - t_lo) / 3)
+        s_tail = np.nanstd(roll[tail]) if tail.sum() else float("nan")
+        p(f"  全片有效帧: 滚转 σ {s_all:.3f}°, 最大 {w_all:.3f}°; "
+          f"后 1/3 段 σ {s_tail:.3f}°")
+        p("  ⇒ 相机若**基本静止**(σ 与单个配准误差同量级), 则 φ(t) 可直接当作"
+          "箭体相对地面的姿态;")
+        p(f"     若某段 σ 明显更大, 该段应减去 cam_roll(t)(实测最大 {w_all:.2f}°)。")
+        p(f"  相机滚转对倾角测量的误差贡献: 约 {s_all:.2f}°(1σ), "
+          f"最大 {w_all:.2f}°")
     p()
     # ---------- 3) 透视(位置相关)项 ----------
     p("-" * 82)
     p("[3] 透视项的量级: 竖直线在画面里的收敛(位置相关倾角)")
     p("-" * 82)
     from rocket_track import TrackerConfig, track_frames
-    meta = json.loads((PROJECT / "runs" / "diag" / "dets_iou70.json").read_text(
-        encoding="utf-8"))
+    meta = json.loads(
+        (PROJECT / "runs" / "diag" / f"dets_{info.get('dets_tag', 'iou70')}.json")
+        .read_text(encoding="utf-8"))
     outs2 = track_frames([r["b"] for r in meta["frames"]], TrackerConfig(),
                          fps, bound_wh=(W, H))
     cx = np.array([0.5 * (o.box[0] + o.box[2]) if (o.has and o.box is not None)
@@ -156,31 +166,37 @@ def main():
       "atan(|x−x_c|·tanθ_pitch / f)。")
     p(f"  画面中心 x_c = {W / 2:.1f}px")
     worst = 0.0
-    for lo, hi, name in ((45, 69, "落地段(决定 φ_ref)"), (11, 40, "下降段(11-40s)")):
+    dxs = {}
+    for lo, hi, nm in bins:
         m = (tsec >= lo) & (tsec < hi) & np.isfinite(cx)
         if m.sum() < 3:
             continue
         dx = float(np.nanmax(np.abs(cx[m] - W / 2.0)))
-        vs = []
+        dxs[nm] = dx
         for fpx, pitch in ((400, 20), (800, 10), (1600, 10)):
             v = math.degrees(math.atan(dx * math.tan(math.radians(pitch))
                                        / fpx))
-            vs.append(v)
-            p(f"  {name}: 火箭横向偏离最大 {dx:.1f}px;  "
+            p(f"  {nm} {lo:.0f}-{hi:.0f}s: 横向偏离最大 {dx:.1f}px;  "
               f"f={fpx:>4}px, 俯仰 {pitch:>2}°  ->  {v:.3f}°")
             worst = max(worst, v)
-    p(f"  ⇒ 落地段横向偏离仅 8.5px ⇒ 该项最坏 < 0.45°(典型 f=800/俯仰10° 时仅 "
-      f"0.11°), 与测量 σ=0.26° 同量级但更小 ⇒ **φ_ref 基准不受透视影响**。")
-    p(f"     下降段偏离可达 100px ⇒ 最坏 {worst:.1f}°。因此**下降段的绝对倾角不应")
-    p(f"     采信**, 但同段内的变化趋势(相对倾角)不受影响 —— 因为透视项只随位置")
-    p(f"     缓慢变化, 而下降段位置变化有限。")
+    p("  ⇒ 该项只取决于'火箭离画面中心多远' × '相机俯仰角', 与视频内容无关:")
+    p(f"     横向偏离小(如 {min(dxs.values()) if dxs else 0:.0f}px 量级)时可忽略;")
+    p("     偏离大或相机俯仰大时必须从 φ 中扣除 —— 本工具无法自行扣除(未知内参),")
+    p(f"     只能给出量级上界 {worst:.1f}° 供判断。")
     p()
 
     # ---------- 4) 面外角 β 的灵敏度 ----------
     p("-" * 82)
     p("[4] 面外角 β 的灵敏度 —— 「完整 3D 姿态不可靠」的量化依据")
     p("-" * 82)
-    land = [r for r in res if r.ok and 46 <= r.t < 66]
+    # 取"目标解析得最清楚"的一半帧(按沿轴长度取中位以上)作代表, 不按时间窗切 ——
+    # 这样不依赖"哪一段是落地段"这个先验, 且小目标帧本来也算不准 β。
+    allv = [r for r in res if r.ok and np.isfinite(r.axis_len_px)
+            and np.isfinite(r.w_body_px)]
+    land = []
+    if allv:
+        axt = float(np.median([r.axis_len_px for r in allv]))
+        land = [r for r in allv if r.axis_len_px >= axt]
     if land:
         ax = np.array([r.axis_len_px for r in land
                        if np.isfinite(r.axis_len_px)])
@@ -190,9 +206,9 @@ def main():
                         if np.isfinite(r.w_box_px)])
         axm, wbm, wb2m = float(np.median(ax)), float(np.median(wb)), \
             float(np.median(wb2))
-        p(f"  落地段(46-66s) n={len(land)}: 沿轴投影长度 {axm:.1f}px, "
+        p(f"  目标最大的那一半帧 n={len(land)}: 沿轴投影长度 {axm:.1f}px, "
           f"拟合筒身宽 {wbm:.1f}px(σ {sd(wb):.2f}), YOLO 框宽 {wb2m:.1f}px "
-          f"(比值 {wb2m / wbm:.2f} ⇒ 框被支腿/栅格舵撑大)")
+          f"(比值 {wb2m / max(wbm, 1e-6):.2f} ⇒ 框被支腿/栅格舵撑大)")
         p()
         p(f"  {'宽度口径':>12} {'长宽比':>8} {'cosβ_raw':>9} " + "".join(
             f"{f'L/D={v:g}':>10}" for v in cfg.ld_scan))
@@ -206,82 +222,32 @@ def main():
             p(f"  {name:>12} {asp:>8.2f} {np.median(raws):>9.2f} "
               + "".join(cells))
         p()
-        p("  ⇒ 同一画面, 换宽度口径或换 L/D, β 从 0° 变到 67°。cosβ_raw>1 表示")
-        p("     几何不自洽(宽度量到的不是筒身轮廓)。**β 只能当参数化假想姿态。**")
+        p("  ⇒ 同一画面, 换宽度口径或换 L/D, β 就能从 0° 变到 60°+。**β 只能当")
+        p("     参数化假想姿态。** 另外底数那个'长宽比'本身也不是火箭的 L/D:")
+        p("     掩码的 w_body 是剪影轮廓宽(口径正确), 但分子的'沿轴跨度'是**参与拟合")
+        p("     的筒身段长度**, 随'筒身段被裁到哪里'变化(小目标段下端易被支腿/尾焰污染),")
+        p("     所以拿它当 L/D 去解 β 必然发散 —— 这是**信息量不足**, 不是算法问题。")
+        p("     想解决必须补其一: (a) 真实三维尺寸/模型; (b) 已知相机内参+俯仰; (c) 多视角。")
         p()
 
-        # ---------- 4b) 用"落地必竖直"反过来标定 ----------
-        p("-" * 82)
-        p("[4b] 用「落地时火箭物理上必然竖直」反过来标定 —— 用它的失败作反证")
-        p("-" * 82)
-        asp_land = np.array([r.aspect for r in res if r.ok and 45 <= r.t < 69
-                             and np.isfinite(r.aspect)])
-        ld_cal = float(np.median(asp_land))
-        p(f"  落地段真实倾角 = 0° ⇒ cosβ = 1 ⇒ 长宽比 = L/D")
-        p(f"  ⇒ 逐帧长径比中位数 = {ld_cal:.2f}, 也就是标定出的 L/D。")
-        p(f"     (若拟合筒身宽 {wbm:.1f}px 确实是筒身直径, 则该火箭 L/D≈{ld_cal:.1f};")
-        p(f"      朱雀3号整体公称 L/D≈17, 同量级, 初步自洽)")
-        p()
-        p(f"  用 L/D={ld_cal:.2f} 反推各阶段的 β(前提: 各阶段宽度口径一致):")
-        p(f"  {'时段':>10} {'n':>5} {'长宽比中位':>11} {'w_body中位':>10} "
-          f"{'β中位(°)':>10} {'φ中位(°)':>9} {'总倾角中位(°)':>12}")
-        betas = {}
-        for lo, hi in ((11, 15), (15, 20), (20, 25), (25, 30), (30, 35),
-                       (35, 40), (40, 45), (45, 69)):
-            m = [r for r in res if r.ok and lo <= r.t < hi
-                 and np.isfinite(r.aspect)]
-            if len(m) < 3:
-                continue
-            asp = np.array([r.aspect for r in m])
-            ph = np.array([r.phi_deg for r in m])
-            wbm_ = float(np.median([r.w_body_px for r in m]))
-            bet = np.array([RA.beta_from_aspect(r.axis_len_px, r.w_body_px,
-                                                ld_cal)[0] for r in m])
-            tt = np.array([RA.total_tilt(p, b) for p, b in zip(ph, bet)])
-            betas[f"{lo}-{hi}"] = float(np.median(bet))
-            p(f"  {f'{lo}-{hi}s':>10} {len(m):>5} {np.median(asp):>11.2f} "
-              f"{wbm_:>10.1f} {np.median(bet):>10.1f} {np.median(ph):>+9.2f} "
-              f"{np.median(tt):>12.2f}")
-        p()
-        des_b = [v for k, v in betas.items() if not k.startswith("45")]
-        if des_b:
-            p(f"  ❌ 这条路的**失败本身就是结论**: 标定后下降段的 β 在 "
-              f"{min(des_b):.0f}°~{max(des_b):.0f}° 之间大幅摆动,")
-            p("     而一枚正在垂直降落的火箭不可能在面外摆动几十度。")
-            p("     唯一自洽的解释是: 上表那个'长宽比'根本不是火箭的长径比 L/D。")
-            p("     掩码路线的 w_body 已经是**剪影轮廓宽**(口径正确, 不再有'量到涂装")
-            p("     条纹'的问题), 但分子的'沿轴跨度'是**参与拟合的筒身段长度**, 它会随")
-            p("     '筒身段被裁到哪里'而变化(早期箭体只有几像素宽、下端被支腿/尾焰污染),")
-            p("     实测该比值从 3.93 变到 9.48 ⇒ 拿它当 L/D 去解 β 必然发散。")
-            p()
-            p("  ⇒ 结论: 单视角 + 无相机参数 + 缺真实三维尺度 ⇒ **面外角 β 与完整")
-            p("     3D 姿态在本视频上不可反算**。这不是算法不够好, 而是信息量不足")
-            p("     (单视角下的 'bas-relief 深度歧义'), 想解决必须补充其一:")
-            p("       (a) 已知的火箭真实三维尺寸/模型 → 用剪影匹配直接拟合姿态;")
-            p("       (b) 已知相机内参+俯仰 → 才能由剪影宽度反解面外角;")
-            p("       (c) 多视角 → 才能定竖直消失点与尺度。")
-            p("     注: 掩码路线已经解决了旧方案里'宽度口径'这一项(旧方案的 w_body")
-            p("     量到的是涂装条纹, 比值≈0.5×框宽), 剩下的缺口是三维尺度与相机内参。")
     p()
 
-    # ---------- 5) 分阶段角度汇总 ----------
+    # ---------- 5) 分段角度汇总 ----------
     p("-" * 82)
-    p("[5] 分阶段角度汇总(有效帧)")
+    p("[5] 分段角度汇总(有效帧; 分档按有效区间三等分, 不写死时间)")
     p("-" * 82)
-    p(f"  {'时段':>10} {'帧数':>5} {'相对竖直φ中位':>13} {'φσ':>7} "
-      f"{'相对上边缘(锐角)':>16} {'相对倾角中位':>12} {'dφ/dt中位(°/s)':>14}")
-    for lo, hi in ((11, 15), (15, 20), (20, 25), (25, 30), (30, 35),
-                   (35, 40), (40, 45), (45, 69)):
+    p(f"  {'时段':>18} {'帧数':>5} {'相对竖直φ中位':>13} {'φσ':>7} "
+      f"{'相对上边缘(锐角)':>16} {'dφ/dt中位(°/s)':>14}")
+    for lo, hi, nm in bins:
         m = [r for r in res if r.ok and lo <= r.t < hi]
         if len(m) < 3:
             continue
         v = np.array([r.phi_deg for r in m])
         vt = np.array([r.phi_vs_top for r in m if np.isfinite(r.phi_vs_top)])
-        vr = np.array([r.phi_rel for r in m if np.isfinite(r.phi_rel)])
         dr = np.array([r.dphi_dt for r in m if np.isfinite(r.dphi_dt)])
-        p(f"  {f'{lo}-{hi}s':>10} {len(m):>5} {np.median(v):>+13.2f} "
-          f"{sd(v):>7.3f} {np.median(vt) if len(vt) else float('nan'):>16.2f} "
-          f"{np.median(vr) if len(vr) else float('nan'):>+12.2f} "
+        p(f"  {f'{nm} {lo:.0f}-{hi:.0f}s':>18} {len(m):>5} "
+          f"{np.median(v):>+13.2f} {sd(v):>7.3f} "
+          f"{np.median(vt) if len(vt) else float('nan'):>16.2f} "
           f"{np.median(dr) if len(dr) else float('nan'):>+14.2f}")
     p()
 
@@ -289,17 +255,19 @@ def main():
     p("=" * 82)
     p("[6] 结论")
     p("=" * 82)
-    p("  ✅ 可行(本模块主输出):")
+    p("  ✅ 可行(本模块主输出, 全部是**绝对量**, 不依赖任何参考基准):")
     p("     · 箭体轴线与**图像竖直方向**的夹角 φ(t)  —— 纯几何量, 无需相机参数")
     p("     · 与**图像上边缘(水平方向)**的夹角 = 90° − |φ|")
-    p("     · 相对倾角 φ_rel(t) = φ(t) − φ_ref  —— 前提是相机静止(已实测验证)")
     p("     · 角速率 dφ/dt —— 不需要任何标定的姿态动力学量")
     p("  ⚠️ 不可靠(仅作参数化假想姿态):")
-    p("     · 面外角 β 与总倾角 —— 依赖未知的 L/D 与筒身宽度, 实测可从 0° 变到 70°+")
+    p("     · 面外角 β 与总倾角 —— 依赖未知的 L/D 与筒身宽度, 实测可从 0° 变到 60°+")
     p("     · β 的符号(朝向/远离相机)单视角无法区分")
-    p("  ℹ️ 本视频实测: 相机**基本静止**(落地段滚转 +0.03°±0.06°), 因此 φ_ref 基准")
-    p("     无需补偿; 下降段的相机滚转 σ≈0.31°, 应减去 cam_roll(t)。")
-    p("     透视(位置相关)项: 落地段 <0.45°(典型 0.11°), 下降段可达 5°。")
+    p("  ℹ️ 已废弃: 相对倾角 φ_rel —— 它需要一个\"参考姿态\", 唯一能拿到的是"
+      "\"片尾落地")
+    p("     即竖直\", 那是只对特定视频成立的先验, 换视频即失效, 故不再输出。")
+    p("  ℹ️ 相机滚转(cam_roll)是独立测出来的: 若全片 σ 与单帧配准误差同量级,"
+      " 说明相机静止,")
+    p("     此时 φ(t) 可直接当作箭体相对地面的姿态; 否则应逐帧减去 cam_roll(t)。")
 
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "validate.txt").write_text("\n".join(L), encoding="utf-8")

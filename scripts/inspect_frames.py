@@ -9,8 +9,10 @@
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
+import sys
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parent.parent
@@ -24,6 +26,9 @@ os.environ["YOLO_CONFIG_DIR"] = str(CACHE / "yolo")
 import cv2
 import numpy as np
 
+sys.path.insert(0, str(PROJECT / "scripts"))
+from video_io import resolve_video  # noqa: E402
+
 DIAG = PROJECT / "runs" / "diag"
 OUT = DIAG / "frames"
 
@@ -32,10 +37,29 @@ COL = {0: (255, 160, 0), 1: (0, 220, 0), 2: (255, 255, 255)}
 
 
 def main():
-    d = json.loads((DIAG / "dets_iou70.json").read_text(encoding="utf-8"))
+    ap = argparse.ArgumentParser(description="关键帧导出放大")
+    ap.add_argument("--dets-tag", default="iou70")
+    ap.add_argument("--frames", default="",
+                    help="要导出的帧号(逗号分隔); 留空=自动取有箭体区间的 5 个分位点")
+    a = ap.parse_args()
+    d = json.loads((DIAG / f"dets_{a.dets_tag}.json").read_text(
+        encoding="utf-8"))
     frames = d["frames"]
-    video = PROJECT / d["meta"]["video"]
+    video = resolve_video(d["meta"])
     OUT.mkdir(parents=True, exist_ok=True)
+    if a.frames.strip():
+        TARGETS = [int(v) for v in a.frames.split(",") if v.strip()]
+    else:
+        # 不再写死本视频的帧号: 在有 RB 框的区间里取 5 个分位点
+        rb = [i for i, r in enumerate(frames)
+              if any(b["c"] == 1 for b in r["b"])]
+        if not rb:
+            print("[x] 整片没有 Rocket Body 检测")
+            return
+        lo, hi = rb[0], rb[-1]
+        TARGETS = [int(round(lo + (hi - lo) * q)) for q in
+                   (0.05, 0.25, 0.5, 0.75, 0.97)]
+        print(f"[自动选帧] RB 区间 {lo}..{hi} -> {TARGETS}")
 
     cap = cv2.VideoCapture(str(video))
     if not cap.isOpened():

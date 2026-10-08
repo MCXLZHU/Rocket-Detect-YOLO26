@@ -5,21 +5,25 @@
 (曾有一个对拍件 `compare_video.py`: 左边画原方案的绿色梯度边线、下段画 Δφ;
 原方案下线后它已随之一并删除, 它的对比结论留档在 `legacy/`。)
 
+交付量是**绝对倾角 φ(t)**: 箭体轴线相对**图像竖直**的夹角 —— 纯几何量,
+不需要任何参考基准。**没有"相对倾角 φ_rel"**, 也没有"某段是真值"这类先验,
+所以换视频可以直接用(把 --tag/--dets-tag 指到新视频的产物即可)。
+
 产物(默认全部落在 runs/sam/):
   1. `overlay_<tag>.mp4`    逐帧叠加: 掩码剪影 + 拟合轴线 + 筒身段标记 + 检出框
-                            + 中文读数(φ / φ_rel / dφ/dt / 筒身宽 / 体检结论)
-  2. `timeline_<tag>.png`   全片曲线: 上段 φ(t) 中轴, 下段 dφ/dt(角速率)
+                            + 中文读数(φ / dφ/dt / 筒身宽 / 体检结论)
+  2. `timeline_<tag>.png`   全片曲线: 上段 φ(t), 下段 dφ/dt(角速率)
                             + 三条逐帧健康度微条带(测角有效 / 分割可信 / 重锚定)
-                            + 0-25s 尺度受限区 与 45-69s 落地段的区间标注
+                            + "目标太小"前段的阴影标注(起点由数据自动判定, 不写死秒数)
   3. `stills_<tag>.png`     N 帧抽帧拼图(--stills N), 不打开视频也能快速看
-  4. `summary_<tag>.txt`    关键数字: 有效帧、分段统计、落地段绝对 φ、推理配置
+  4. `summary_<tag>.txt`    关键数字: 有效帧、分档统计、推理配置
 
 产物只写不删(帧目录/视频都按 tag 命名, 复用不清理)。
 
 用法:
     python scripts/sam_angle_viz.py                           # s512 全片
     python scripts/sam_angle_viz.py --no-video                # 只出图, 快
-    python scripts/sam_angle_viz.py --start 1400 --end 1800   # 只看落地段
+    python scripts/sam_angle_viz.py --start 1400 --end 1800   # 只看某一段
     python scripts/sam_angle_viz.py --tag s1024 --stills 6
 """
 
@@ -53,6 +57,7 @@ from viz_common import (  # noqa: E402
     C_AXIS, C_BODY, C_BOX, C_SIL, fnum, load_font, read_csv_map,
 )
 from rocket_track import TrackerConfig, track_frames  # noqa: E402
+from video_io import resolve_video  # noqa: E402
 
 DETS = PROJECT / "runs" / "diag"
 ANGM = PROJECT / "runs" / "angle_mask"
@@ -67,10 +72,36 @@ C_RAW = (110, 110, 110)       # 逐帧未平滑 φ(灰)
 C_RAWR = (62, 62, 62)         # 逐帧原始差分角速率(更暗: 它是噪声参考, 不该抢眼)
 C_RATE = (230, 190, 60)       # 角速率曲线(浅蓝)
 C_SHADE = (34, 34, 34)        # 区间底色
-C_REF = (225, 225, 225)       # 落地基准线
+C_MARK = (225, 225, 225)      # 可信起点标线
 
-UNRELIABLE_S = 25.0           # 该时刻之前的 φ 受"目标太小"的尺度偏差影响, 不可采信
-LANDING = (45.0, 69.0)        # 落地稳定段(报告口径)
+
+def reliable_from(amap: dict[int, dict], fps: float,
+                  frac: float = 0.6) -> float | None:
+    """估计"从哪一时刻起 φ 才可信" —— 数据驱动, 不写死秒数。
+
+    依据: 目标在画面里越小, 剪影边界量得越粗(尺度相关偏差)。用筒身宽 `w_body_px`
+    作为"目标有多大"的代理量。门槛 = **片尾 1/3 的中位宽 × frac** —— 用片尾而不是
+    全片中位做基准, 是因为全片中位会被早期小目标拉低, 门槛会松到"几乎全片可信"。
+
+    返回第一次(用 1s 滑动中位判稳)稳定超过门槛的时刻; 全片都够大时返回 0.0。
+    这是个**相对判据**: 换视频/换分辨率都不用改数字。
+    """
+    fr = sorted((f for f, r in amap.items()
+                 if str(r.get("ok", "0")) in ("1", "True")
+                 and fnum(r, "w_body_px") is not None))
+    if not fr:
+        return None
+    w = np.array([fnum(amap[f], "w_body_px") for f in fr], float)
+    tail = w[int(len(w) * 2 / 3):]
+    if tail.size == 0:                  # 帧数太少时退回全体(别用 `or`, numpy 数组判真会报错)
+        tail = w
+    thr = frac * float(np.median(tail))
+    win = max(int(round(1.0 * fps)), 1)
+    for i, f in enumerate(fr):
+        seg = w[i:i + win]
+        if len(seg) >= win and float(np.median(seg)) >= thr:
+            return f / fps
+    return None
 
 
 def windowed_rate(amap: dict[int, dict], fps: float,
@@ -104,9 +135,12 @@ def windowed_rate(amap: dict[int, dict], fps: float,
 def build_timeline(n: int, fps: float, W: int, H: int,
                    amap: dict[int, dict], mmap: dict[int, dict],
                    phi_lo: float, phi_hi: float, rate_max: float,
-                   phi_ref: float | None,
+                   rel_from: float | None = None,
                    rmap: dict[int, float] | None = None) -> np.ndarray:
-    """返回 (H, W, 3) uint8。上段 φ(t), 下段 dφ/dt(t)。"""
+    """返回 (H, W, 3) uint8。上段 φ(t)(绝对倾角), 下段 dφ/dt(t)。
+
+    不含任何"基准线/参考段": 交付量就是轴线相对图像竖直的绝对夹角。
+    """
     strip = np.full((H, W, 3), 20, np.uint8)
     pad_l, pad_r = 48, 10
     w = W - pad_l - pad_r
@@ -135,22 +169,18 @@ def build_timeline(n: int, fps: float, W: int, H: int,
         cv2.putText(strip, s, (x, y), cv2.FONT_HERSHEY_SIMPLEX, sc, col, th,
                     cv2.LINE_AA)
 
-    # ---- 区间底色: 0-25s 尺度受限 / 45-69s 落地段 ----
+    # ---- 区间底色: "目标太小"的前段(起点由数据定, 见 reliable_from) ----
     y_lo_row, y_hi_row = y1_top, y2_top + h2 - 8
-    xa = x_of(int(UNRELIABLE_S * fps))
-    strip[y_lo_row:y_hi_row, pad_l:xa] = np.clip(
-        0.55 * strip[y_lo_row:y_hi_row, pad_l:xa].astype(np.float32)
-        + 0.45 * np.array(C_SHADE, np.float32), 0, 255).astype(np.uint8)
-    xb0 = x_of(int(LANDING[0] * fps))
-    xb1 = x_of(min(int(LANDING[1] * fps), n - 1))
-    strip[y_lo_row:y_hi_row, xb0:xb1] = np.clip(
-        0.72 * strip[y_lo_row:y_hi_row, xb0:xb1].astype(np.float32)
-        + 0.28 * np.array((0, 55, 0), np.float32), 0, 255).astype(np.uint8)
+    # 注意 rel_from 可能是 0.0(全片目标都够大) —— 它**是有效值**, 别用 `if rel_from`
+    xa = x_of(int(rel_from * fps)) if rel_from is not None else pad_l
+    if xa > pad_l + 2:
+        strip[y_lo_row:y_hi_row, pad_l:xa] = np.clip(
+            0.55 * strip[y_lo_row:y_hi_row, pad_l:xa].astype(np.float32)
+            + 0.45 * np.array(C_SHADE, np.float32), 0, 255).astype(np.uint8)
     # 区间名写在专门的标注行, 不压在曲线上
-    put(f"0-{UNRELIABLE_S:.0f}s : scale-limited (target only a few px wide)",
-        pad_l + 4, 21, (150, 150, 150), 0.34)
-    put(f"{LANDING[0]:.0f}-{LANDING[1]:.0f}s : landing (most reliable)",
-        xb0 + 4, 21, (120, 200, 120), 0.34)
+    if rel_from is not None and rel_from > 0.5:
+        put(f"0-{rel_from:.1f}s : target too small (silhouette only a few px wide)",
+            pad_l + 4, 21, (150, 150, 150), 0.34)
 
     # ---- 上段: φ 网格 + 时间轴 ----
     span = max(phi_hi - phi_lo, 1e-6)
@@ -165,16 +195,10 @@ def build_timeline(n: int, fps: float, W: int, H: int,
                  (86, 86, 86) if abs(p) > 1e-6 else (130, 130, 130), 1,
                  cv2.LINE_AA)
         put("0" if abs(p) < 1e-6 else f"{p:+.0f}", 4, y + 4, (185, 185, 185))
-    # 落地基准线(φ_ref): 相对倾角都以它为 0
-    if phi_ref is not None:
-        y = y_phi(phi_ref)
-        for x in range(pad_l, W - pad_r, 9):
-            cv2.line(strip, (x, y), (x + 5, y), C_REF, 1, cv2.LINE_AA)
-        s = f"phi_ref = {phi_ref:+.2f} (landing ref = phi_rel zero)"
-        tw = int(4.6 * len(s)) + 6
-        cv2.rectangle(strip, (pad_l + 2, y - 13), (pad_l + 2 + tw, y - 1),
-                      (18, 18, 18), -1)          # 垫底, 免得被曲线糊住
-        put(s, pad_l + 6, y - 4, C_REF, 0.34)
+    # 可信起点标线(数据驱动, 见 reliable_from): 它左边目标太小, φ 有尺度相关偏差
+    if rel_from is not None and xa > pad_l + 2:
+        cv2.line(strip, (xa, y1_top), (xa, y2_top + h2 - 8), C_MARK, 1,
+                 cv2.LINE_AA)
     for t in range(0, int(n / fps) + 1, 10):
         x = x_of(int(t * fps))
         cv2.line(strip, (x, y1_top), (x, y2_top + h2), (50, 50, 50), 1,
@@ -256,8 +280,7 @@ def build_timeline(n: int, fps: float, W: int, H: int,
 # 单帧叠加
 # ==========================================================================
 def draw_frame(img: np.ndarray, f: int, XL, XR, sm: dict | None,
-               ms: dict | None, tb, font_s, t: float,
-               phi_ref: float | None, tag: str) -> np.ndarray:
+               ms: dict | None, tb, font_s, t: float, tag: str) -> np.ndarray:
     H, W = img.shape[:2]
     if tb is not None:
         b = [int(v) for v in tb]
@@ -291,14 +314,11 @@ def draw_frame(img: np.ndarray, f: int, XL, XR, sm: dict | None,
     pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
     d = ImageDraw.Draw(pil)
     ps = fnum(sm, "phi_smooth") if sm else None
-    pr = fnum(sm, "phi_rel") if sm else None
     rt = fnum(sm, "dphi_dt") if sm else None
     lines = [f"t = {t:5.1f}s    frame {f}",
-             f"SAM 2.1 掩码测角  ({tag})"]
+             f"SAM 2.1 掩码测角  ({tag})   φ = 轴线 vs 图像竖直"]
     if ps is not None:
         s = f"φ = {ps:+.2f}°"
-        if pr is not None:
-            s += f"      相对落地基准 φ_rel = {pr:+.2f}°"
         lines.append(s)
         lines.append("角速率 dφ/dt = %s°/s      筒身宽 %.1fpx"
                      % (f"{rt:+.2f}" if rt is not None else "  -- ",
@@ -345,12 +365,21 @@ def write_summary(tag: str, info: dict, amap: dict[int, dict],
             if str(r.get("ok", "0")) in ("1", "True")]
     v = np.array([fnum(r, "phi_smooth") for r in good], float)
     v = v[np.isfinite(v)]
-    # 分段名按机理命名, 不按"高/低"命名 —— 15-25s 的 σ 很大是因为箭体正在
-    # 快速翻转(dφ/dt 峰值段), 不是估计变差; 这一点必须让人从表里就看出来。
-    groups = [("落地稳定段", LANDING[0], LANDING[1]), ("姿态收敛段", 25.0, 45.0),
-              ("翻转过渡段", 15.0, 25.0), ("尺度受限段", 7.0, 15.0)]
+    rf = reliable_from(amap, fps)
+    # 分档: 按有效帧的时间跨度等分(不再写死 7/15/25/45/66s)。每档的 σ 反映
+    # 该段内 φ 的变化幅度 —— 机动剧烈的一段 σ 自然大, 不代表估计变差。
+    fr = sorted(r["frame"] for r in good)
+    if fr:
+        t0_, t1_ = fr[0] / fps, (fr[-1] + 1) / fps
+        span = max(t1_ - t0_, 1e-6)
+        nb = 4
+        groups = [(f"第 {i + 1}/{nb} 段",
+                   t0_ + span * i / nb, t0_ + span * (i + 1) / nb)
+                  for i in range(nb)]
+    else:
+        groups = []
     L = ["=" * 74,
-         "SAM 2.1 掩码测角路线 —— 结果摘要(独立, 不含与原方案的对拍)",
+         "SAM 2.1 掩码测角路线 —— 结果摘要",
          "=" * 74,
          f"分割标签      : {tag}",
          f"模型/输入尺寸 : SAM 2.1 {info.get('model', '?')} @ "
@@ -362,13 +391,11 @@ def write_summary(tag: str, info: dict, amap: dict[int, dict],
          f"无掩码 {info.get('n_no_mask', 0)} 帧, "
          f"拟合失败 {info.get('n_fit_failed', 0)} 帧, "
          f"重锚定 {info.get('n_reanchor', 0)} 次",
-         f"落地基准 φ_ref: {info.get('ref', float('nan')):+.3f}°  "
-         f"(45-66s, 相对倾角 φ_rel 的零点)",
          "",
          f"全片 φ 范围   : [{v.min():+.2f}, {v.max():+.2f}]  "
-         f"中位 {np.median(v):+.2f}°",
+         f"中位 {np.median(v):+.2f}°" if v.size else "全片 φ 范围   : (无有效帧)",
          "-" * 74,
-         f"{'时段':<12}{'n':>6}{'中位':>10}{'均值':>10}{'σ':>9}{'极差':>9}",
+         f"{'时段':<16}{'n':>6}{'中位':>10}{'均值':>10}{'σ':>9}{'极差':>9}",
          "-" * 74]
     for nm, lo, hi in groups:
         seg = np.array([fnum(r, "phi_smooth") for r in good
@@ -376,20 +403,25 @@ def write_summary(tag: str, info: dict, amap: dict[int, dict],
         seg = seg[np.isfinite(seg)]
         if len(seg) < 3:
             continue
-        L.append(f"{nm + f' {lo:.0f}-{hi:.0f}s':<12}{len(seg):>6}"
+        L.append(f"{nm + f' {lo:.0f}-{hi:.0f}s':<16}{len(seg):>6}"
                  f"{np.median(seg):>+10.2f}{seg.mean():>+10.3f}"
                  f"{seg.std():>9.3f}{np.ptp(seg):>9.2f}")
     L += ["-" * 74, "",
-          "可交付量(单视角能给的):",
+          "可交付量(单视角能给的, 全部是绝对量, 无需任何参考基准):",
           "  * φ(t) 箭体轴线相对图像竖直的倾角(正=顶端右倾)",
-          "  * φ_rel = φ − φ_ref, 相对落地姿态的倾角变化",
           "  * 90 − |φ|, 箭体与图像上边缘的夹角",
           "  * dφ/dt, 角速率(见 timeline 下段)",
-          "",
-          f"注意: 前 {UNRELIABLE_S:.0f}s 箭体在画面中仅几像素宽(条带 7~10px),",
-          "      φ 的估计误差随目标变小而放大, 该区间不作为结论使用;",
-          "      可信区间从约 25s 起, 最可信为落地段 45-69s。",
           ""]
+    if rf is None:
+        L += ["注意: 目标太小的前段无法自动判定(有效帧太少或宽度中位不稳定),",
+              "      请自行按筒身宽判断哪些帧不可信。", ""]
+    elif rf <= 0.5:
+        L += ["注意: 全片目标都足够大(剪影宽始终不低于全片中位宽的 40%),",
+              "      因此没有需要剔除的'目标太小'区间。", ""]
+    else:
+        L += [f"注意: 前 {rf:.1f}s 目标在画面里太小(剪影只有几像素宽), φ 的估计误差",
+              "      随目标变小而放大, 该区间不作为结论使用。该时刻由数据自动判定:",
+              "      筒身宽首次稳定达到全片中位宽的 40%(与视频时长/分辨率无关)。", ""]
     p = OUT / f"summary_{tag}.txt"
     p.write_text("\n".join(L) + pad, encoding="utf-8")
     return p
@@ -457,21 +489,24 @@ def main() -> None:
         rate_max = float(a.rate_range)
     rate_max = max(0.5, rate_max)
     n_clip = int(np.sum(np.abs(rv) > rate_max)) if rv.size else 0
-    phi_ref = info.get("ref")
+    # 可信起点(目标太小之前的那一段): 由数据判定, 不写死秒数
+    rel_from = reliable_from(amap, fps)
     print(f"[刻度] φ 轴 {phi_lo:+.0f}..{phi_hi:+.0f}°   "
           f"dφ/dt 轴 ±{rate_max:.1f}°/s (窗内差分 n={rv.size}, "
-          f"截顶 {n_clip} / {100 * n_clip / max(rv.size, 1):.1f}%)", flush=True)
+          f"截顶 {n_clip} / {100 * n_clip / max(rv.size, 1):.1f}%)   "
+          f"可信起点 {('n/a' if rel_from is None else '%.1fs' % rel_from)}",
+          flush=True)
 
     OUT.mkdir(parents=True, exist_ok=True)
     strip = build_timeline(n_all, fps, W, a.strip_h, amap, mmap, phi_lo, phi_hi,
-                           rate_max, phi_ref, rmap)
+                           rate_max, rel_from, rmap)
     sh = strip.shape[0]
     n_ok = sum(1 for r in amap.values() if str(r.get("ok")) in ("1", "True"))
     foot = [
         f"SAM 2.1 {info.get('model', '?')} @ {info.get('image_size', '?')}px"
         f"{' fp16' if info.get('half') else ''}   |   "
         f"angle valid {n_ok}/{n_all} frames   |   "
-        f"phi_ref {phi_ref:+.2f} deg (landing 45-66s)",
+        f"phi = body axis vs IMAGE VERTICAL (absolute, no reference)",
         "curves:  magenta = smoothed phi   grey = per-frame raw   "
         "light-blue = dphi/dt (0.33s window)   grey thin = per-frame diff",
         "top bands:  angle-valid=green   mask-confident=cyan   "
@@ -500,7 +535,7 @@ def main() -> None:
     # ---------------- 视频 ----------------
     font_s = load_font(14)
     out_path = Path(a.out) if a.out else (OUT / f"overlay_{a.tag}.mp4")
-    cap = cv2.VideoCapture(str(PROJECT / vm["video"]))
+    cap = cv2.VideoCapture(str(resolve_video(vm)))
     writer = cv2.VideoWriter(str(out_path),
                              cv2.VideoWriter_fourcc(*"mp4v"), fps,
                              (W, H + sh))
@@ -518,7 +553,7 @@ def main() -> None:
             break
         img = draw_frame(fr, f, XL, XR, amap.get(f), mmap.get(f),
                          outs[f].box if outs[f].has else None, font_s,
-                         f / fps, phi_ref, a.tag)
+                         f / fps, a.tag)
         canvas = np.full((H + sh, W, 3), 16, np.uint8)
         canvas[:H] = img
         canvas[H:] = strip

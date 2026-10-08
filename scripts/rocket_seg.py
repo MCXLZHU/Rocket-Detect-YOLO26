@@ -77,6 +77,7 @@ import cv2  # noqa: E402
 import torch  # noqa: E402
 
 from rocket_track import TrackerConfig, iou_xyxy, track_frames  # noqa: E402
+from video_io import resolve_video, video_key  # noqa: E402
 
 DETS_DIR = PROJECT / "runs" / "diag"
 OUT_DIR = PROJECT / "runs" / "seg"
@@ -418,7 +419,7 @@ def run(cfg: SegConfig | None = None, dets_tag: str = "iou70",
     n_all = len(outs)
     end = n_all if end is None else min(end, n_all)
 
-    video = PROJECT / vm["video"]
+    video = resolve_video(vm)        # 支持项目外的视频(见 video_io.py)
     cap = cv2.VideoCapture(str(video))
     if not cap.isOpened():
         tmp = CACHE / "tmp" / "src_seg.mp4"
@@ -437,7 +438,9 @@ def run(cfg: SegConfig | None = None, dets_tag: str = "iou70",
     mask_fp = open(OUT_DIR / "masks.bin", "wb") if cfg.save_masks else None
     rec_bytes = (H_ * W + 7) // 8          # 每帧打包位掩码字节数
 
-    frames_root = CACHE / "seg_frames"
+    # 帧缓存目录**必须带视频标识**: 只按帧号区间命名的话, 换视频会直接复用上一个
+    # 视频的帧(帧号区间完全一样), 轻则尺寸不符报错, 重则静默用错画面。见 video_io。
+    frames_root = CACHE / "seg_frames" / video_key(vm)
     frames_root.mkdir(parents=True, exist_ok=True)
 
     all_res: dict[int, FrameSeg] = {}

@@ -36,22 +36,21 @@ os.environ["TORCH_HOME"] = str(CACHE_DIR / "torch")
 os.environ["MPLCONFIGDIR"] = str(CACHE_DIR / "mpl")
 os.environ["YOLO_CONFIG_DIR"] = str(CACHE_DIR / "yolo")
 os.environ.setdefault("PYTHONUTF8", "1")
+sys.path.insert(0, str(PROJECT / "scripts"))
+
+from video_io import pick_video, video_field  # noqa: E402
 
 DEFAULT_WEIGHTS = PROJECT / "runs" / "rocket_yolo26s" / "weights" / "best.pt"
 OUT_DIR = PROJECT / "runs" / "diag"
 
 
-def find_video() -> Path:
-    cands = list(PROJECT.glob("*.mp4")) + list(PROJECT.glob("*.mkv"))
-    if not cands:
-        print("[x] 工作区没找到视频文件")
-        sys.exit(1)
-    return max(cands, key=lambda p: p.stat().st_size)
-
-
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="逐帧导出检测结果(诊断用)")
-    p.add_argument("--video", type=str, default=None)
+    p.add_argument("--video", type=str, default=None,
+                   help="视频路径(可以是项目外的绝对路径); "
+                        "不填则取 --video-dir 下最大的一个")
+    p.add_argument("--video-dir", type=str, default=None,
+                   help="批量换视频时在此目录里找, 默认项目根目录")
     p.add_argument("--weights", type=str, default=str(DEFAULT_WEIGHTS))
     p.add_argument("--conf", type=float, default=0.02, help="存盘用的极低阈值")
     p.add_argument("--iou", type=float, default=0.7, help="NMS IoU 阈值")
@@ -64,7 +63,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    video = Path(args.video) if args.video else find_video()
+    video = pick_video(args.video,
+                       Path(args.video_dir) if args.video_dir else None)
     wpath = Path(args.weights)
     for pth, msg in ((video, "视频"), (wpath, "权重")):
         if not pth.exists():
@@ -125,7 +125,9 @@ def main() -> None:
     el = time.time() - t0
     out = OUT_DIR / f"dets_{args.tag}.json"
     meta = {
-        "video": video.name, "fps": fps, "frames": len(frames), "W": W, "H": H,
+        # video 只作显示; video_path 才是下游真正用来打开文件的(见 video_io.py)
+        "video": video.name, "video_path": video_field(video),
+        "fps": fps, "frames": len(frames), "W": W, "H": H,
         "conf": args.conf, "iou": args.iou, "imgsz": args.imgsz,
         "weights": str(wpath), "elapsed_s": round(el, 1),
         "class_names": ["Engine Flames", "Rocket Body", "Space"],

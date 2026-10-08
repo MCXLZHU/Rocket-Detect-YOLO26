@@ -33,6 +33,7 @@ import cv2  # noqa: E402
 
 sys.path.insert(0, str(PROJECT / "scripts"))
 from rocket_track import TrackerConfig, track_frames  # noqa: E402
+from video_io import resolve_video  # noqa: E402
 
 SEG = PROJECT / "runs" / "seg"
 DETS = PROJECT / "runs" / "diag"
@@ -90,7 +91,7 @@ def main():
         lines.append(f"  中位宽度 / 框宽 = {np.median(wr) / max(box[2] - box[0], 1):.3f}"
                      f"   (原方案实测筒身/框 ≈ 0.52)")
         # 叠加图
-        cap = cv2.VideoCapture(str(PROJECT / vm["video"]))
+        cap = cv2.VideoCapture(str(resolve_video(vm)))
         cap.set(cv2.CAP_PROP_POS_FRAMES, f)
         ok, img = cap.read()
         cap.release()

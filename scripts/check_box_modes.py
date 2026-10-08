@@ -23,7 +23,12 @@ def p(s=""):
     L.append(s)
 
 
-d = json.loads((DIAG / "dets_iou70.json").read_text(encoding="utf-8"))
+import argparse as _ap_mod  # noqa: E402
+
+_ap = _ap_mod.ArgumentParser(description="框底边双模式核查")
+_ap.add_argument("--dets-tag", default="iou70")
+_d = _ap.parse_args()
+d = json.loads((DIAG / f"dets_{_d.dets_tag}.json").read_text(encoding="utf-8"))
 frames = d["frames"]
 fps = d["meta"]["fps"]
 H = d["meta"]["H"]
