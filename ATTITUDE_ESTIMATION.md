@@ -2,7 +2,10 @@
 
 **目标**：在**没有相机云台/内参参数**的前提下，给出能站得住的姿态量。
 **实现**：`scripts/rocket_attitude.py`（核心）+ `scripts/validate_attitude.py`（验证）+ `scripts/attitude_report.py`（可视化）
-**产物**：`runs/attitude/`（`attitude.csv` / `.json`、`attitude_timeline.png`、`attitude_ref.mp4`、`validate.txt`、`probe.txt`）
+**产物**：`runs/attitude/`：`attitude_<tag>.csv` / `.json`、`attitude_timeline_<tag>.png`、
+`attitude_ref_<tag>.mp4`、`validate_<tag>.txt`、`probe.txt`。
+> ⚠️ 产物名带**掩码标签**（`<tag>`，如 `s512`）。原来写死 `attitude.csv`，换第二支视频跑会
+> **静默覆盖**前一支的结果；现在多支视频的产物可以共存（2026-10-08 修）。
 **状态**：✅ 主输出（夹角/相对倾角/角速率）已实现并验证；⚠️ 完整 3D 姿态**在本视频上不可反算**，已给出量化依据。
 
 > **泛化改造（2026-10-08）**：本步**不再输出相对倾角 φ_rel**。原因是它需要一个
@@ -165,12 +168,12 @@ $$\cos\beta = \frac{L_{proj}}{W_{proj}}\cdot\frac{D}{L}$$
 | 文件 | 作用 |
 |---|---|
 | **`scripts/rocket_attitude.py`** | 核心：`verify/estimate_frame_motion`（背景配准）、`angle_conventions`、`beta_from_aspect`、`total_tilt`、CLI |
-| `scripts/validate_attitude.py` | 六节验证报告 → `runs/attitude/validate.txt` |
+| `scripts/validate_attitude.py` | 六节验证报告 → `runs/attitude/validate_<tag>.txt` |
 | `scripts/attitude_report.py` | 时间线四联图 + 标注视频（画上竖直参考虚线/水平参考虚线/箭体轴线） |
 | `scripts/_probe_bg.py` | 前置探测：地平线是否存在、背景配准是否可用 → `probe.txt` + `bg/*.jpg` |
-| `runs/attitude/attitude.csv` / `.json` | 逐帧 22 列（各种夹角 + 相机运动 + 可选 β） |
-| `runs/attitude/attitude_timeline.png` | φ / 90−\|φ\| / 相对倾角 / 相机滚转与 NCC / 有效性 |
-| `runs/attitude/attitude_ref.mp4` | 叠加白虚线（图像竖直）、灰虚线（图像上边缘）、红线（箭体轴线）与实时角度 |
+| `runs/attitude/attitude_<tag>.csv` / `.json` | 逐帧 22 列（各种夹角 + 相机运动 + 可选 β） |
+| `runs/attitude/attitude_timeline_<tag>.png` | φ / 90−\|φ\| / 相机滚转与 NCC / 有效性 |
+| `runs/attitude/attitude_ref_<tag>.mp4` | 叠加白虚线（图像竖直）、灰虚线（图像上边缘）、红线（箭体轴线）与实时角度 |
 
 ```powershell
 # 前置探测(背景可用性)

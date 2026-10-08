@@ -53,24 +53,31 @@ attitude 66s（相机配准占大头）。日志写在 `runs/pipeline_log.txt`�
 ```powershell
 # 视频可以在任何位置(项目外也行); 两个标签分开: --tag 给检测, --sam-tag 给掩码链路
 E:\Anaconda\envs\yolo26\python.exe pipeline.py `
-    --video "D:\videos\r2.mp4" --tag r2 --sam-tag s512
+    --video "D:\videos\r2.mp4" --tag r2
 
 # 也可以指定一个目录, 让它自己找里面最大的视频
 E:\Anaconda\envs\yolo26\python.exe pipeline.py --video-dir "D:\videos" --tag r2
 
 # 只看结果
-E:\Anaconda\envs\yolo26\python.exe pipeline.py --summary --tag r2 --sam-tag s512
-E:\Anaconda\envs\yolo26\python.exe scripts\sam_angle_viz.py --tag s512 --dets-tag r2
+E:\Anaconda\envs\yolo26\python.exe pipeline.py --summary --tag r2
+E:\Anaconda\envs\yolo26\python.exe scripts\sam_angle_viz.py --tag <掩码标签> --dets-tag r2
 ```
+
+**网络输入边长不用自己算**：`--det-imgsz` 与 `--sam-imgsz` 默认都是 `auto`，按"长边 → 输入边长"
+保持参考配置（852×480 → 640/512）的比例，夹到 [640,1280] / [512,1024]。
+1080p 视频会自动用 1280/1024——**这一步很关键**：目标的绝对像素宽不会因为视频分辨率高而变大，
+视频越清晰、目标占画幅比例往往越小，仍用 640 的话箭体在网络上只剩十来个像素，直接检不出来。
+同样地 `--sam-tag` 默认取 `s<解析后的 imgsz>`，不用手动对齐标签。
 
 **新视频最容易卡在哪（按发生概率排序）**
 
 | 现象 | 原因 | 怎么办 |
 |---|---|---|
 | `dets_r2.json` 里几乎没有框 → 后面全空 | **检测器不认识这种火箭**（模型只在这个数据集上训过）。这是最可能的失败点，且不是测角的问题 | 先看 `runs/diag/analysis.txt`；确认是检测问题就换权重 `--weights` 或微调模型 |
+| 只有前一段有框、后面整段消失 | 目标占画幅太小（远景/广角），`imgsz` 相对分辨率偏低 | 先确认**不是被遮挡**（抽帧看）；然后提高 `--det-imgsz`。实测 1916×1080 的片子箭体只有 30px 宽（占画幅 1.6%），640 下分数 0.02 / 1280 下 0.33~0.42 |
 | 大量 `fit_failed` | 目标太小 / 掩码把尾焰或烟尘一起圈进来了 | 门限已按目标尺寸自适应，先看 `runs/seg/diag_s512.txt`（可用率诊断）与 `runs/sam/timeline_*.png` 上的"目标太小"阴影区 |
 | 显存/内存不足 | 分辨率高（1080p+） | `--sam-chunk 100`（甚至 50）；像素门限已按分辨率自动缩放 |
-| φ 曲线整体在漂 | **相机在动**（手持/摇镜） | 看 `runs/attitude/validate.txt` 的相机滚转段：φ 是相对**图像**的，相机在转时应逐帧减去 `cam_roll(t)` |
+| φ 曲线整体在漂 | **相机在动**（手持/摇镜） | 看 `runs/attitude/validate_<掩码标签>.txt` 的相机滚转段：φ 是相对**图像**的，相机在转时应逐帧减去 `cam_roll(t)` |
 | 早期一段 φ 不可信 | 目标只有几像素宽，属尺度相关偏差 | 图里会**自动**阴影标出该段（判据：筒身宽首次稳定达到片尾中位宽的 60%）；这段本来就不该用 |
 
 **已经实测过的泛化验证**：把原视频截成 15s 起、缩到 640×360、放到项目外的目录，

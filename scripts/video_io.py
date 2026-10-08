@@ -110,3 +110,41 @@ def open_cap(vm: dict):
     if not cap.isOpened():
         raise RuntimeError(f"cv2 打不开视频: {p}")
     return cap
+
+
+def probe_video(p: Path) -> tuple[int, int, float, int]:
+    """读视频的基本规格 (W, H, fps, 帧数)。不解码画面, 很快。"""
+    import cv2
+    cap = cv2.VideoCapture(str(p))
+    if not cap.isOpened():
+        raise RuntimeError(f"cv2 打不开视频: {p}")
+    W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = float(cap.get(cv2.CAP_PROP_FPS))
+    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    return W, H, fps, n
+
+
+def auto_imgsz(W: int, H: int, ref_long: int = 852, ref_imgsz: int = 640,
+               lo: int = 640, hi: int = 1280, mult: int = 32) -> int:
+    """网络输入边长随**视频分辨率**缩放 —— 高分辨率视频不能继续用 640。
+
+    ⚠️ 为什么需要它(实测): 检测器/分割网络看到的都是**缩放后**的画面。开发时用的
+    视频是 852x480(长边 852)配 imgsz=640, 也就是"长边压缩到 0.75 倍"。换到一段
+    1916x1080 的视频时仍用 640, 等于把长边压到 0.33 倍 —— 箭体在画面里本来就只占
+    1.6% 宽(30px), 缩完只剩 10px, 模型直接检不出来(实测箭体分数从 0.2+ 掉到 0.02,
+    整段 12-18s 全丢)。把 imgsz 提到 1280 后恢复正常。
+    这与"帧缓存必须带视频标识"是同一类先验漏洞: 参数默认值是按**某一支视频**标的。
+
+    规则: 保持参考配置的"长边 -> 输入边长"比例, 再夹到 [lo, hi] 并对齐到 mult。
+      852x480   -> 640   (与历史行为**完全一致**, 老视频不受影响)
+      1916x1080 -> 1280  (封顶)
+      640x360   -> 640   (下限, 免得小视频反而降分辨率)
+    """
+    long_side = max(int(W or 0), int(H or 0))
+    if long_side <= 0:                   # 取不到规格 -> 退回参考值
+        return ref_imgsz
+    v = ref_imgsz * long_side / float(ref_long)
+    v = max(lo, min(hi, v))
+    return int(round(v / mult) * mult)

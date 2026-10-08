@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """第 4 步结果可视化: 时间线图 + 标注视频(画上"竖直参考线"与"图像上边缘参考线")。
 
-产物: runs/attitude/attitude_timeline.png + attitude_ref.mp4
+产物: runs/attitude/attitude_timeline_<tag>.png + attitude_ref_<tag>.mp4
+      <tag> 取该 attitude_<tag>.json 里记录的 src_tag(可用 --out-tag 覆盖)
 用法: python scripts/attitude_report.py
 """
 from __future__ import annotations
@@ -24,6 +25,8 @@ os.environ["TEMP"] = str(CACHE / "tmp")
 os.environ["TMP"] = str(CACHE / "tmp")
 os.environ["MPLCONFIGDIR"] = str(CACHE / "mpl")
 
+import argparse  # noqa: E402
+
 import cv2  # noqa: E402
 import matplotlib  # noqa: E402
 matplotlib.use("Agg")
@@ -40,16 +43,43 @@ DIAG = PROJECT / "runs" / "diag"
 OUT = PROJECT / "runs" / "attitude"
 
 
-def load():
-    d = json.loads((OUT / "attitude.json").read_text(encoding="utf-8"))
+def load(out_tag: str = "") -> tuple:
+    """读 attitude_<tag>.json; 不给 tag 时先看无后缀的旧文件, 再退回唯一一份。"""
+    sfx = f"_{out_tag}" if out_tag else ""
+    p = OUT / f"attitude{sfx}.json"
+    if not p.exists():
+        cand = sorted(OUT.glob("attitude*.json"))
+        if not cand:
+            raise FileNotFoundError(f"没找到姿态结果 {p}; 先跑 validate_attitude.py")
+        p = cand[0]
+        print(f"[!] {OUT / f'attitude{sfx}.json'} 不存在, 改用 {p.name}")
+    d = json.loads(p.read_text(encoding="utf-8"))
     fr = d["frames"]
     fps = d["info"]["fps"]
     g = lambda k: np.array([r[k] if r[k] is not None else np.nan for r in fr])  # noqa: E731
+    print(f"[读] {p}")
     return d, fps, g
 
 
 def main():
-    d, fps, g = load()
+    ap = argparse.ArgumentParser()
+    # ⚠️ 产物名带标签: 否则换第二支视频跑会覆盖前一支的图/视频(同 validate_attitude)
+    ap.add_argument("--out-tag", default="",
+                    help="读 attitude_<tag>.json 并写出同后缀的图/视频; "
+                         "默认跟随该 json 里记录的 src_tag")
+    a = ap.parse_args()
+    out_tag = a.out_tag
+    if not out_tag:                      # 没给就跟随 json 自己记录的那套标签
+        for f in sorted(OUT.glob("attitude*.json")):
+            try:
+                out_tag = json.loads(f.read_text(
+                    encoding="utf-8"))["info"].get("src_tag", "") or ""
+            except Exception:
+                out_tag = ""
+            if out_tag:
+                break
+    sfx = f"_{out_tag}" if out_tag else ""
+    d, fps, g = load(out_tag)
     t = g("t")
     phi = g("phi_deg")
     ok = np.array([bool(r["ok"]) for r in d["frames"]])
@@ -99,8 +129,8 @@ def main():
     ax[3].grid(alpha=0.25)
     ax[3].set_title("测角有效性")
     fig.tight_layout()
-    fig.savefig(OUT / "attitude_timeline.png", dpi=130)
-    print(f"-> {OUT / 'attitude_timeline.png'}")
+    fig.savefig(OUT / f"attitude_timeline{sfx}.png", dpi=130)
+    print(f"-> {OUT / f'attitude_timeline{sfx}.png'}")
 
     # ---------------- 标注视频: 画竖直参考线与上边缘参考线 ----------------
     # 读哪份检测产物由 attitude.json 的 info 决定(换视频/换标签时自动跟随)
@@ -117,7 +147,7 @@ def main():
         tmp = CACHE / "tmp" / "rep.mp4"
         shutil.copy(str(vpath), str(tmp))
         cap = cv2.VideoCapture(str(tmp))
-    writer = cv2.VideoWriter(str(OUT / "attitude_ref.mp4"),
+    writer = cv2.VideoWriter(str(OUT / f"attitude_ref{sfx}.mp4"),
                              cv2.VideoWriter_fourcc(*"mp4v"), fps, (W, H))
     n = 0
     while True:
@@ -161,7 +191,7 @@ def main():
         n += 1
     cap.release()
     writer.release()
-    print(f"-> {OUT / 'attitude_ref.mp4'}")
+    print(f"-> {OUT / f'attitude_ref{sfx}.mp4'}")
 
 
 if __name__ == "__main__":

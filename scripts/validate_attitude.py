@@ -7,7 +7,8 @@
   5) 面外角 β 的灵敏度: 同一画面在不同 L/D、不同宽度口径下给出什么结果
   6) 分阶段角度汇总
 
-产物: runs/attitude/validate.txt
+产物: runs/attitude/validate_<tag>.txt + attitude_<tag>.csv/.json
+      <tag> 默认与 --src-tag 相同(多视频产物共存, 不互相覆盖)
 用法: python scripts/validate_attitude.py [--l-over-d 17]
 """
 from __future__ import annotations
@@ -50,7 +51,10 @@ def main():
     ap.add_argument("--dets-tag", default="iou70")
     ap.add_argument("--src-tag", default="s512",
                     help="第 3 步掩码路线的标签(读 angles_<src-tag>.json)")
+    ap.add_argument("--out-tag", default="",
+                    help="本阶段产物的文件名后缀; 默认与 --src-tag 相同(避免多视频互相覆盖)")
     a = ap.parse_args()
+    out_tag = a.out_tag or a.src_tag
     cfg = RA.AttitudeConfig(l_over_d=a.l_over_d)
     res, info, extra = RA.run(cfg, dets_tag=a.dets_tag, verbose=False,
                               src_tag=a.src_tag)
@@ -270,11 +274,15 @@ def main():
     p("     此时 φ(t) 可直接当作箭体相对地面的姿态; 否则应逐帧减去 cam_roll(t)。")
 
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "validate.txt").write_text("\n".join(L), encoding="utf-8")
+    # ⚠️ 产物名必须带标签: 本阶段原来写死 attitude.csv / validate.txt, 换第二支视频
+    # 跑就会**静默覆盖**前一支的结果(与检测/掩码标签是同一类问题)。--out-tag 默认空
+    # 时保持旧文件名, 流水线会显式传入掩码标签。
+    sfx = f"_{out_tag}" if out_tag else ""
+    (OUT / f"validate{sfx}.txt").write_text("\n".join(L), encoding="utf-8")
     # 顺带把逐帧结果落盘(省掉 pipeline 里重复跑一遍相机配准)
-    RA.save(res, info)
+    RA.save(res, info, out_tag)
     print("\n".join(L))
-    print(f"\n[写入] {OUT / 'validate.txt'}  +  attitude.csv / attitude.json")
+    print(f"\n[写入] {OUT / f'validate{sfx}.txt'}  +  attitude{sfx}.csv / .json")
 
 
 if __name__ == "__main__":

@@ -27,9 +27,9 @@
 原来的输入 `runs/angle/angles.json`(ROI 梯度边缘)已随原方案一起下线。
 
 =============================== 输出 ===============================
-  runs/attitude/attitude.csv / .json   逐帧: 各种夹角 + 相机运动 + 可选 β
-  runs/attitude/attitude_timeline.png  时间线
-  runs/attitude/camera_check.txt       相机静止性验证报告(含注入运动校验)
+  runs/attitude/attitude[_<tag>].csv / .json   逐帧: 各种夹角 + 相机运动 + 可选 β
+  runs/attitude/attitude_timeline[_<tag>].png  时间线
+  (实际主产物由 validate_attitude.py + attitude_report.py 产出, 文件名带 src-tag)
 用法:
     python scripts/rocket_attitude.py
     python scripts/rocket_attitude.py --src-tag s1024     # 换另一套分割配置

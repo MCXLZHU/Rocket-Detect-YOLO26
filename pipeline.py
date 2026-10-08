@@ -59,6 +59,10 @@ CHILD_ENV.update({
 
 PY = sys.executable          # 与入口同一个解释器(用户用的是 conda 的 yolo26 环境)
 S = PROJECT / "scripts"
+sys.path.insert(0, str(S))
+from video_io import (auto_imgsz, pick_video, probe_video,  # noqa: E402
+                      resolve_video)
+
 LOG = PROJECT / "runs" / "pipeline_log.txt"
 
 DIAG, ATT = PROJECT / "runs" / "diag", PROJECT / "runs" / "attitude"
@@ -77,13 +81,15 @@ class Stage:
         self.needs = needs              # 前置阶段
 
 
-def _stages(dets_tag: str, sam_tag: str):
+def _stages(dets_tag: str, sam_tag: str, det_imgsz: int, sam_imgsz: int):
     """dets_tag: 检测产物标签(第 1-2 步);
     sam_tag:  掩码路线产物标签(第 3 步起)。两者分开是因为 SAM 的标签里
-              要带输入边长(如 s512 / s1024), 而检测标签只跟 conf/iou 有关。"""
+              要带输入边长(如 s512 / s1024), 而检测标签只跟 conf/iou 有关。
+    det_imgsz / sam_imgsz: 已解析过的网络输入边长(见 resolve_scales)。"""
     def detect(a):
         cmd = [PY, str(S / "diag_video_detections.py"), "--tag", dets_tag,
-               "--conf", str(a.conf), "--iou", str(a.iou)]
+               "--conf", str(a.conf), "--iou", str(a.iou),
+               "--imgsz", str(det_imgsz)]
         if a.video:
             cmd += ["--video", a.video]      # 可以是项目外的完整路径
         if getattr(a, "video_dir", None):
@@ -100,11 +106,13 @@ def _stages(dets_tag: str, sam_tag: str):
 
     def attitude(a):
         # 输入是掩码路线的测角结果, 所以要显式告诉它 --src-tag
+        # --out-tag: 本阶段产物名带掩码标签, 免得换视频时覆盖前一支的结果
         cmd = [PY, str(S / "validate_attitude.py"), "--dets-tag", dets_tag,
-               "--src-tag", sam_tag]
+               "--src-tag", sam_tag, "--out-tag", sam_tag]
         if a.l_over_d and math.isfinite(a.l_over_d):
             cmd += ["--l-over-d", str(a.l_over_d)]
-        out = [cmd, [PY, str(S / "attitude_report.py")]]
+        out = [cmd, [PY, str(S / "attitude_report.py"),
+                     "--out-tag", sam_tag]]
         if math.isfinite(a.l_over_d):
             out.append([PY, str(S / "rocket_attitude.py"), "--l-over-d",
                         str(a.l_over_d), "--tag", "ld", "--dets-tag", dets_tag,
@@ -115,7 +123,7 @@ def _stages(dets_tag: str, sam_tag: str):
         """SAM 2.1 视频模式分割箭体轮廓。需要 third_party/sam2 + 权重。"""
         cmd = [PY, str(S / "rocket_seg.py"), "--dets-tag", dets_tag,
                "--tag", sam_tag, "--model", a.sam_model,
-               "--image-size", str(a.sam_imgsz), "--chunk", str(a.sam_chunk)]
+               "--image-size", str(sam_imgsz), "--chunk", str(a.sam_chunk)]
         if a.video_out:
             cmd.append("--make-video")
         return [cmd]
@@ -137,7 +145,8 @@ def _stages(dets_tag: str, sam_tag: str):
         Stage("angle_mask", "掩码剪影中心线 → 倾角 φ(t)",
               [ANGM / f"angles_{sam_tag}.csv"], angle_mask, ("seg",)),
         Stage("attitude", "相对倾角 + 相机核查 (+可选 β)",
-              [ATT / "attitude.csv", ATT / "validate.txt"], attitude,
+              [ATT / f"attitude_{sam_tag}.csv",
+               ATT / f"validate_{sam_tag}.txt"], attitude,
               ("angle_mask",)),
     ]
 
@@ -175,7 +184,7 @@ def summarize(dets_tag: str, sam_tag: str) -> str:
         L.append(s)
 
     meta_f = DIAG / f"dets_{dets_tag}.json"
-    att_f = ATT / "attitude.json"
+    att_f = ATT / f"attitude_{sam_tag}.json"
     p("=" * 78)
     p("Rocket Attitude Estimation —— 流水线汇总")
     p("=" * 78)
@@ -316,8 +325,10 @@ def summarize(dets_tag: str, sam_tag: str) -> str:
     for f in (DIAG / f"dets_{dets_tag}.json", DIAG / "stabilize_report.txt",
               SEGOUT / f"bounds_{sam_tag}.npz",
               ANGM / f"angles_{sam_tag}.csv",
-              ATT / "attitude.csv", ATT / "validate.txt",
-              ATT / "attitude_timeline.png", ATT / "attitude_ref.mp4",
+              ATT / f"attitude_{sam_tag}.csv",
+              ATT / f"validate_{sam_tag}.txt",
+              ATT / f"attitude_timeline_{sam_tag}.png",
+              ATT / f"attitude_ref_{sam_tag}.mp4",
               LOG):
         mark = "✓" if f.exists() else "·"
         p(f"  {mark} {f.relative_to(PROJECT)}")
@@ -349,6 +360,8 @@ def parse_args() -> argparse.Namespace:
                    help="另外产出带标注的视频(较慢)")
     p.add_argument("--conf", type=float, default=0.02, help="检测存盘阈值")
     p.add_argument("--iou", type=float, default=0.7, help="NMS IoU")
+    p.add_argument("--det-imgsz", default="auto",
+                   help="检测输入边长; auto=按视频分辨率缩放(默认), 也可给数字")
     p.add_argument("--tag", default=None, help="检测结果标签, 默认 iou<int(iou*100)>")
     p.add_argument("--l-over-d", type=float, default=float("nan"),
                    help="火箭真实长径比; 给出才计算面外角 β")
@@ -357,8 +370,9 @@ def parse_args() -> argparse.Namespace:
                         "它同时是第 3 步起所有产物的文件名后缀")
     p.add_argument("--sam-model", default="tiny", choices=["tiny", "small"],
                    help="SAM 2.1 规格(默认 tiny)")
-    p.add_argument("--sam-imgsz", type=int, default=512,
-                   help="SAM 2.1 输入边长(默认 512; 1024 更准但慢约 3 倍)")
+    p.add_argument("--sam-imgsz", default="auto",
+                   help="SAM 2.1 输入边长; auto=按视频分辨率缩放(默认, 上限 1024), "
+                        "也可给数字(512 快 / 1024 更准但慢约 3 倍)")
     p.add_argument("--sam-chunk", type=int, default=200,
                    help="SAM 分块帧数(默认 200; 显存不足会自动减半重试)")
     p.add_argument("--summary", action="store_true", help="只打印汇总")
@@ -366,11 +380,99 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def _as_imgsz(v) -> int | None:
+    """'auto' -> None(交给自动规则); 数字(含字符串数字) -> int。"""
+    if isinstance(v, str) and v.strip().lower() == "auto":
+        return None
+    return int(v)
+
+
+def resolve_scales(a) -> tuple[int, int]:
+    """把 --det-imgsz / --sam-imgsz 的 'auto' 解析成具体边长。
+
+    'auto' 走 `video_io.auto_imgsz`(保持参考配置 852x480->640/512 的比例)。
+    取不到视频规格(如只想 --list/--summary, 或路径给错)时退回参考值,
+    这样**老视频与新视频的行为都和以前一致**, 不会因为解析失败而改变流程。
+    """
+    det, sam = _as_imgsz(a.det_imgsz), _as_imgsz(a.sam_imgsz)
+    if det is not None and sam is not None:
+        return det, sam
+    W = H = 0
+    try:
+        vp = pick_video(a.video, Path(a.video_dir) if a.video_dir else None)
+        W, H = probe_video(vp)[:2]
+    except Exception:
+        pass                             # 没视频也能 --list / --summary
+    if det is None:
+        det = auto_imgsz(W, H, ref_imgsz=640, lo=640, hi=1280)
+    if sam is None:
+        sam = auto_imgsz(W, H, ref_imgsz=512, lo=512, hi=1024)
+    return det, sam
+
+
+def _artifact_video(p: Path) -> str | None:
+    """从产物 JSON 里读出它属于哪支视频(只比文件名, 够用于"是不是同一支")。"""
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    for key in ("meta", "info", None):
+        vm = d if key is None else d.get(key)
+        if isinstance(vm, dict):
+            for k in ("video_path", "video"):
+                if vm.get(k):
+                    return Path(str(vm[k])).name
+    return None
+
+
+def _auto_suffix(a, dets_tag: str, sam_tag: str) -> str:
+    """换视频时, 别把**上一支视频**的同名产物静默覆盖掉。
+
+    ⚠️ 为什么需要: 默认标签只跟参数走(dets 标签 `iou70`、掩码标签 `s512`), 与视频
+    无关。于是换一支视频直接跑 `pipeline.py --video other.mp4`, 就会覆盖原视频的
+    `dets_iou70.json` 和 `bounds_s512.npz` / `angles_s512.csv` —— 这属于同一类
+    "默认值是按某一支视频标的"先验漏洞, 而且后果是**丢数据**、不报错。
+
+    保守做法: 只有当同名产物**确实属于另一支视频**时, 才给标签加视频名后缀。
+    没有冲突时标签与以前完全一样(老流程不受影响)。
+    """
+    want = None
+    try:
+        want = pick_video(a.video, Path(a.video_dir) if a.video_dir else None)
+    except Exception:
+        return ""
+    hits = []
+    if not a.tag:
+        for f in (DIAG / f"dets_{dets_tag}.json",):
+            if f.exists() and _artifact_video(f) not in (None, want.name):
+                hits.append((f, _artifact_video(f)))
+    if not a.sam_tag:
+        for f in (SEGOUT / f"seg_meta_{sam_tag}.json",
+                  ANGM / f"angles_{sam_tag}.json"):
+            if f.exists() and _artifact_video(f) not in (None, want.name):
+                hits.append((f, _artifact_video(f)))
+    if not hits:
+        return ""
+    other = hits[0][1]
+    sfx = "_" + want.stem[:16]
+    print(f"[!] 标签 {dets_tag} / {sam_tag} 的既有产物属于另一支视频({other});")
+    print(f"    为避免覆盖, 本次自动改用 {dets_tag + sfx} / {sam_tag + sfx}"
+          f"(要固定标签请显式传 --tag / --sam-tag)")
+    return sfx
+
+
 def main() -> None:
     a = parse_args()
+    det_imgsz, sam_imgsz = resolve_scales(a)
     dets_tag = a.tag or f"iou{int(round(a.iou * 100))}"
-    sam_tag = a.sam_tag or f"s{a.sam_imgsz}"
-    stages = _stages(dets_tag, sam_tag)
+    sam_tag = a.sam_tag or f"s{sam_imgsz}"
+    sfx = _auto_suffix(a, dets_tag, sam_tag)
+    if sfx:                              # 只给"没被显式钉住"的那个标签加后缀
+        if not a.tag:
+            dets_tag += sfx
+        if not a.sam_tag:
+            sam_tag += sfx
+    stages = _stages(dets_tag, sam_tag, det_imgsz, sam_imgsz)
 
     if a.list:
         print(f"{'阶段':<12} {'说明':<34} 产物")
@@ -411,12 +513,13 @@ def main() -> None:
     print("Rocket Attitude Estimation —— 流水线")
     print("=" * 78)
     print(f"  待执行阶段: {' -> '.join(sel)}")
-    print(f"  检测标签  : {dets_tag}   (conf={a.conf}, iou={a.iou})")
+    print(f"  检测标签  : {dets_tag}   (conf={a.conf}, iou={a.iou}, "
+          f"imgsz={det_imgsz})")
     print(f"  掩码标签  : {sam_tag}")
     print(f"  标注视频  : {'开' if a.video_out else '关(--video-out 打开)'}")
     print(f"  长径比    : {a.l_over_d if math.isfinite(a.l_over_d) else '未提供(不算 β)'}")
     print(f"  SAM 路线  : 主线 —— sam2.1_hiera_{a.sam_model}, "
-          f"imgsz={a.sam_imgsz}, chunk={a.sam_chunk}")
+          f"imgsz={sam_imgsz}, chunk={a.sam_chunk}")
     print(f"  日志      : {LOG.relative_to(PROJECT)}")
     print()
 

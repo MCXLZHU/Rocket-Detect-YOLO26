@@ -132,18 +132,43 @@ def windowed_rate(amap: dict[int, dict], fps: float,
 # ==========================================================================
 # 全片曲线带(只渲染一次)
 # ==========================================================================
+def data_window(amap: dict[int, dict], mmap: dict[int, dict], n: int,
+                cover: float = 0.6, pad_s: float = 0.6,
+                fps: float = 30.0) -> tuple[int, int] | None:
+    """数据只覆盖片段时, 给出横轴该取哪一段(帧号)。
+
+    动机: 有的视频里目标只在前一小段可见(后面被结构遮挡/飞出画面), 若仍把整支
+    视频铺满横轴, 曲线会被压进左边十分之一的宽度里, 什么也看不出来。
+    判据是数据驱动的: 有效帧跨度 < 全片 cover 比例, 就把横轴缩到"有效帧跨度 + 余量"。
+    有效帧本来就铺满全片时返回 None(不改变原有出图)。
+    """
+    fs = [f for f, r in amap.items() if str(r.get("ok", "0")) in ("1", "True")]
+    if not fs:
+        fs = [f for f, r in mmap.items() if str(r.get("has", "0")) in ("1", "True")]
+    if not fs:
+        return None
+    f0, f1 = min(fs), max(fs)
+    if (f1 - f0) >= cover * max(n - 1, 1):
+        return None
+    m = int(round(pad_s * fps))
+    return max(0, f0 - m), min(n - 1, f1 + m)
+
+
 def build_timeline(n: int, fps: float, W: int, H: int,
                    amap: dict[int, dict], mmap: dict[int, dict],
                    phi_lo: float, phi_hi: float, rate_max: float,
                    rel_from: float | None = None,
-                   rmap: dict[int, float] | None = None) -> np.ndarray:
+                   rmap: dict[int, float] | None = None,
+                   win: tuple[int, int] | None = None) -> np.ndarray:
     """返回 (H, W, 3) uint8。上段 φ(t)(绝对倾角), 下段 dφ/dt(t)。
 
     不含任何"基准线/参考段": 交付量就是轴线相对图像竖直的绝对夹角。
+    `win=(f0, f1)` 可把横轴限制到某段帧号(见 data_window)。
     """
     strip = np.full((H, W, 3), 20, np.uint8)
     pad_l, pad_r = 48, 10
     w = W - pad_l - pad_r
+    f0, f1 = (0, n - 1) if win is None else (int(win[0]), int(win[1]))
     # 顶部 1-12px 是三条健康度微条带, 13-24px 专留给"区间标注",
     # 曲线从 y1_top 才开始 —— 否则标注文字会被早期高达 +14° 的 φ 曲线穿过。
     y1_top = 27
@@ -153,7 +178,8 @@ def build_timeline(n: int, fps: float, W: int, H: int,
     y2_top = y1_top + h1 + 8
 
     def x_of(f):
-        return int(pad_l + w * f / max(n - 1, 1))
+        x = pad_l + w * (f - f0) / max(f1 - f0, 1)
+        return int(min(max(x, pad_l), pad_l + w))
 
     def mk_y(y_top, y_bot, lo, hi):
         def y_of(p):
@@ -199,7 +225,14 @@ def build_timeline(n: int, fps: float, W: int, H: int,
     if rel_from is not None and xa > pad_l + 2:
         cv2.line(strip, (xa, y1_top), (xa, y2_top + h2 - 8), C_MARK, 1,
                  cv2.LINE_AA)
-    for t in range(0, int(n / fps) + 1, 10):
+    # 时间刻度: 步长随可见跨度自适应, 免得缩到片段后刻度全挤在一起
+    span_s = (f1 - f0) / fps
+    tstep = 10
+    for cand in (1, 2, 5, 10, 20, 30):
+        if span_s / cand <= 12:
+            tstep = cand
+            break
+    for t in range(int(f0 / fps) // tstep * tstep, int(f1 / fps) + 1, tstep):
         x = x_of(int(t * fps))
         cv2.line(strip, (x, y1_top), (x, y2_top + h2), (50, 50, 50), 1,
                  cv2.LINE_AA)
@@ -217,7 +250,7 @@ def build_timeline(n: int, fps: float, W: int, H: int,
              (95, 95, 95), 1, cv2.LINE_AA)
 
     # ---- 顶部三条健康度微条带 ----
-    for f in range(n):
+    for f in range(f0, f1 + 1):
         x = x_of(f)
         a = amap.get(f)
         m = mmap.get(f)
@@ -234,7 +267,7 @@ def build_timeline(n: int, fps: float, W: int, H: int,
     def curve(y_of, key, color, thick=1):
         """只连"该帧被评为有效"的点, 无效处断开(不跨跃缺口画直线)。"""
         pts = []
-        for f in range(n):
+        for f in range(f0, f1 + 1):
             r = amap.get(f)
             v = fnum(r, key) if is_ok(r) else None
             if v is None:
@@ -250,7 +283,7 @@ def build_timeline(n: int, fps: float, W: int, H: int,
 
     def curve_vals(y_of, vals: dict, color, thick=1):
         pts = []
-        for f in range(n):
+        for f in range(f0, f1 + 1):
             v = vals.get(f)
             if v is None:
                 if len(pts) > 1:
@@ -497,9 +530,15 @@ def main() -> None:
           f"可信起点 {('n/a' if rel_from is None else '%.1fs' % rel_from)}",
           flush=True)
 
+    # 横轴范围: 数据只覆盖片段时缩到数据窗口(见 data_window), 否则曲线被压扁
+    win = data_window(amap, mmap, n_all, fps=fps)
+    if win:
+        print(f"[横轴] 有效数据只覆盖 {win[0] / fps:.1f}-{win[1] / fps:.1f}s "
+              f"(全片 {n_all / fps:.1f}s), 横轴缩到该区间", flush=True)
+
     OUT.mkdir(parents=True, exist_ok=True)
     strip = build_timeline(n_all, fps, W, a.strip_h, amap, mmap, phi_lo, phi_hi,
-                           rate_max, rel_from, rmap)
+                           rate_max, rel_from, rmap, win)
     sh = strip.shape[0]
     n_ok = sum(1 for r in amap.values() if str(r.get("ok")) in ("1", "True"))
     foot = [
@@ -512,6 +551,11 @@ def main() -> None:
         "top bands:  angle-valid=green   mask-confident=cyan   "
         "reanchored=orange",
     ]
+    if win:
+        foot.append(
+            f"x-axis covers {win[0] / fps:.1f}-{win[1] / fps:.1f}s only "
+            f"(of {n_all / fps:.1f}s): the body was measurable only there "
+            f"(occluded / out of frame elsewhere)")
     # 高度要够: 页脚最后一行基线在 32+sh+20+17*(k-1), 少 1px 就会被裁掉半行
     fig = np.full((sh + 46 + 17 * len(foot), W, 3), 255, np.uint8)
     fig[32:32 + sh] = strip
