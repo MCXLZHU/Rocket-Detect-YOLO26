@@ -118,8 +118,21 @@ detect@1280 仅 28.7s、seg@1024 84.9s。
 - 排除入库：数据集（18GB）、`.cache/`、除 `best.pt` 外的 `*.pt`、`runs/**/*.mp4`、`*.log`。
 - **提交信息必须用「无 BOM UTF-8 文件 + `git commit -F`」**；Write 工具写的无 BOM，
   `Set-Content -Encoding utf8` 会带 BOM（曾让标题变 `锘縟ocs`，用 `--amend -F` 修好）。
-- **`git push` 未打通**（本机无 GitHub 写凭据）；**WorkBuddy 的 GitHub Connector 与 git push
-  是两条独立通道**，重连 Connector 无效。
+- ✅ **`git push` 已打通（2026-10-09）**。远端 `main`/`sam2-video-mask` = 本地 `2b171d2`。
+  两个前提缺一不可：① 用户开 VPN（v2rayN，**非 TUN 模式**，本地代理 `127.0.0.1:10808`，
+  socks5h/http 都通）；② 一次性 PAT。已设 `git config --local http.proxy http://127.0.0.1:10808`
+  —— git 的 `http.proxy` **优先级高于环境变量**，所以沙箱把 `http_proxy` 指向 12338 也不影响。
+  ⚠️ **沙箱出口代理屏蔽 GitHub**（github.com/api.github.com → 000，pypi/example 正常）。
+  ⚠️ **WorkBuddy 的 GitHub Connector 对本仓库只有读权限**（写接口一律
+  `403 Resource not accessible by integration`），不能当写入通道。
+  ⚠️ 诊断凭据问题务必带 `-c credential.helper=` + `GIT_TERMINAL_PROMPT=0`：本机 helper 是
+  PortableGit 的 GUI 选择器，**非交互会卡死**（表现为命令无输出直到超时，易误判成网络问题）。
+- ⚠️ **重写历史前必须先备份**：`git filter-branch` 结尾会硬重置工作区，把"重写后不再包含的
+  文件"从**工作区直接删掉**（2026-10-09 用它在剔除 40MB 视频时误删了源文件）。
+  且它**只重写当前分支的 ref**，`main` 要手动 `git branch -f main <新sha>`。
+  误删可用 `git cat-file blob $(git rev-parse <旧sha>:<路径>) > <路径>` 救回（gc 之前）。
+- `changzheng1.mp4`（40MB 外部素材）已从跟踪与历史中剔除，且写入 `.gitignore`；
+  文件本体仍在项目根目录。便携备份：`E:\_rocket_push\Rocket-Detect-YOLO26.bundle`。
 - ⚠️ **本机 git 无法创建带斜杠的嵌套引用名**：`git branch feature/x` 打印成功且 exit 0 但
   `refs/heads/feature/x` 根本没建，同时 HEAD 被改写 ⇒ 留下"未出生分支"假象。
   **一律用扁平名**；已陷入时 `git symbolic-ref HEAD refs/heads/main` 恢复。
