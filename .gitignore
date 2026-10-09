@@ -45,6 +45,11 @@ weights/*.pt
 # ---------- 6. 派生的可视化视频 (约 34 MB, 由 pipeline.py 可复现) ----------
 runs/**/*.mp4
 
+# 外部下载的大体积测试素材 (公开视频, 非项目产物, 40 MB)
+# 泛化测试用的 changzheng1.mp4 留在本地即可; 结果产物照常入库,
+# 想复现实验时把视频放回根目录再跑 pipeline.py。
+changzheng1.mp4
+
 # ---------- 7. 冒烟测试 / 调试产物 ----------
 runs/smoke_run/
 runs/smoke_test/
